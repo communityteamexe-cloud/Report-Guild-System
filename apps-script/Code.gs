@@ -97,6 +97,64 @@ function seedRankRules_() {
 }
 
 // ===================================================================
+// ดูแลระบบ — รันเองจาก editor (ชื่อไม่มี _ ท้าย จะได้เห็นใน Dropdown)
+// ===================================================================
+
+/** ติดตั้ง Trigger สำรองข้อมูลทุกวันจันทร์ 02:00 (รันซ้ำได้ ไม่สร้างซ้ำ) */
+function installTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'backupDatabase') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('backupDatabase').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(2).create();
+  Logger.log('✅ ติดตั้ง Trigger สำรองข้อมูล ทุกวันจันทร์ 02:00 แล้ว');
+}
+
+/** สำรองชีตฐานข้อมูล → โฟลเดอร์ Backup (เก็บทุกไฟล์ ไม่ลบของเก่า) */
+function backupDatabase() {
+  const src = DriveApp.getFileById(ss_().getId());
+  const parent = src.getParents().hasNext() ? src.getParents().next() : DriveApp.getFolderById(PROJECT_PARENT_FOLDER);
+  const it = parent.getFoldersByName('Backup');
+  const folder = it.hasNext() ? it.next() : parent.createFolder('Backup');
+  const name = 'Backup — Report Guild System — ' + Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HHmm');
+  const copy = src.makeCopy(name, folder);
+  Logger.log('✅ สำรองแล้ว: ' + copy.getUrl());
+  return copy.getUrl();
+}
+
+/** เปลี่ยน ADMIN_KEY ใหม่ → คีย์เก่าใช้ไม่ได้ทันที · เอาคีย์ใหม่ไปวางใน Dev Tools ของ CTM 🐶 */
+function rotateAdminKey() {
+  const key = Utilities.getUuid().replace(/-/g, '');
+  PropertiesService.getScriptProperties().setProperty('ADMIN_KEY', key);
+  Logger.log('🔑 ADMIN_KEY ใหม่: ' + key + '  (คีย์เก่าใช้ไม่ได้แล้ว · อัปเดตใน CTM 🐶 ด้วย · ห้ามเผยแพร่)');
+}
+
+/**
+ * ลบข้อมูลทดสอบก่อนเปิดใช้จริง: บัญชีที่อีเมลขึ้นต้น "test." + Report ของบัญชีนั้นทุกปี
+ * สำรองชีตก่อนลบทุกครั้ง
+ */
+function clearTestData() {
+  const backup = backupDatabase();
+  const isTest = function (email) { return String(email).toLowerCase().indexOf('test.') === 0; };
+  let removed = { guilds: 0, reports: 0 };
+  withLock_(function () {
+    ss_().getSheets().forEach(function (sh) {
+      const name = sh.getName();
+      if (name !== 'Guilds' && name.indexOf('Reports_') !== 0) return;
+      const data = sh.getDataRange().getValues();
+      const col = indexMap_(data[0]).Email;
+      for (let i = data.length - 1; i >= 1; i--) {            // ลบจากล่างขึ้นบน แถวจะไม่เลื่อน
+        if (isTest(data[i][col])) {
+          sh.deleteRow(i + 1);
+          name === 'Guilds' ? removed.guilds++ : removed.reports++;
+        }
+      }
+    });
+  });
+  clearAllCache();
+  Logger.log('🧹 ลบบัญชีทดสอบ ' + removed.guilds + ' · Report ทดสอบ ' + removed.reports + ' แถว · สำรองก่อนลบ: ' + backup);
+}
+
+// ===================================================================
 // Web entry
 // ===================================================================
 

@@ -51,3 +51,12 @@ function testCreateGuild() {
 | Missions | Mission ทุกเกม · `StartYM`/`EndYM` = ช่วงเดือนที่ใช้ (YYYY-MM ค.ศ.) · group: basic / feedback / extra |
 | RankRules | เกณฑ์ S/SS ต่อเกม · `FromYear` = ใช้ตั้งแต่ปีนั้น (เพิ่มแถวปีใหม่ได้ ปีเก่าไม่เปลี่ยน) |
 | Reports_YYYY | Report แยกรายปี (สร้างเองอัตโนมัติ) · คะแนนเก็บ snapshot ตอนส่ง |
+
+## ฟังก์ชันดูแลระบบ (รันจาก Apps Script editor → Dropdown → ▷ เรียกใช้)
+| ฟังก์ชัน | ใช้เมื่อ |
+|---|---|
+| `installTriggers` | ครั้งแรก 1 ครั้ง — สำรองชีตอัตโนมัติทุกวันจันทร์ 02:00 |
+| `backupDatabase` | สำรองชีตเดี๋ยวนี้ → โฟลเดอร์ `Backup` ใต้ `06 - 🛡️ Report Guild System` (ไม่ลบของเก่า) |
+| `clearTestData` | ก่อนเปิดใช้จริง — ลบบัญชี `test.*` + Report ของบัญชีนั้น (สำรองก่อนลบให้เอง) |
+| `rotateAdminKey` | คีย์หลุด / คนในทีมย้ายออก — ได้คีย์ใหม่ใน Log → เอาไปวางใน Dev Tools ของ CTM 🐶 |
+| `clearAllCache` | แก้ชีตด้วยมือแล้วอยากให้มีผลทันที (ปกติรอ ≤ 5 นาที) |
