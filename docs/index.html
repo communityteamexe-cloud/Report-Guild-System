@@ -119,7 +119,12 @@
           </div>
           <label>ลิงก์หลักฐาน <span class="muted" style="font-weight:400">— 1 กล่อง = 1 ลิงก์ (สูงสุด 50)</span></label>
           <div id="s-links" class="links"></div>
-          <button type="button" class="btn ghost add" id="s-add">＋ เพิ่มลิงก์</button>
+          <div class="row-btns">
+            <button type="button" class="btn ghost add" id="s-add">＋ เพิ่มลิงก์</button>
+            <button type="button" class="btn ghost add" id="s-import">📂 นำเข้าจากไฟล์</button>
+            <input type="file" id="s-file" accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv" hidden>
+          </div>
+          <div class="note muted">รองรับ .txt · .csv · .xlsx · .xls (Google Sheets → ไฟล์ → ดาวน์โหลด) · ลากไฟล์มาวางบนกล่องลิงก์ได้</div>
           <div class="note" id="s-count"></div>
           <div id="s-result"></div>
           <label for="s-note">รายละเอียดเพิ่มเติม (ไม่บังคับ)</label>

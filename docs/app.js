@@ -386,6 +386,95 @@
     updateLinkCount();
   }
 
+  // ---------- นำเข้าลิงก์จากไฟล์ (อ่านในเครื่อง ไม่อัปโหลด) ----------
+  const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  let sheetJsPromise = null;
+
+  /** โหลด SheetJS ครั้งเดียว เฉพาะตอนนำเข้า Excel */
+  function loadSheetJs() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!sheetJsPromise) {
+      sheetJsPromise = new Promise((ok, fail) => {
+        const s = document.createElement('script');
+        s.src = SHEETJS_URL;
+        s.onload = () => ok(window.XLSX);
+        s.onerror = () => { sheetJsPromise = null; fail(new Error('โหลดตัวอ่าน Excel ไม่ได้ (ตรวจอินเทอร์เน็ต) — ลอง Save เป็น .csv แทน')); };
+        document.head.appendChild(s);
+      });
+    }
+    return sheetJsPromise;
+  }
+
+  /**
+   * กวาดหาลิงก์ในข้อความ · เติม https:// ให้ลิงก์ Facebook/www ที่ไม่มี
+   * ตัดเครื่องหมายวรรคตอนท้ายลิงก์ (เช่น "," ")" ".") ออก
+   */
+  function extractLinks(text) {
+    // ไม่รับ , ในลิงก์ (เป็นตัวคั่นคอลัมน์ CSV)
+    const re = /\bhttps?:\/\/[^\s"'<>,]+|\b(?:www\.|m\.|web\.)?(?:facebook\.com|fb\.com|fb\.watch)\/[^\s"'<>,]+|\bwww\.[^\s"'<>,]+/gi;
+    return (String(text || '').match(re) || []).map((u) => {
+      u = u.replace(/[),.;:!?\]}]+$/, '');
+      return /^https?:\/\//i.test(u) ? u : 'https://' + u;
+    });
+  }
+
+  /** อ่านไฟล์ → รายการลิงก์ (Excel อ่านทุกชีต ทุกช่อง + ลิงก์ที่ซ่อนใต้ข้อความ) */
+  async function readLinksFromFile(file) {
+    const name = file.name.toLowerCase();
+    if (/\.(xlsx|xls)$/.test(name)) {
+      const XLSX = await loadSheetJs();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const found = [];
+      wb.SheetNames.forEach((sn) => {
+        const ws = wb.Sheets[sn];
+        Object.keys(ws).forEach((addr) => {
+          if (addr[0] === '!') return;
+          const c = ws[addr];
+          if (c.l && c.l.Target) found.push.apply(found, extractLinks(c.l.Target));   // ไฮเปอร์ลิงก์ที่ซ่อน
+          if (c.v != null) found.push.apply(found, extractLinks(c.v));
+          if (c.f) found.push.apply(found, extractLinks(c.f));                       // =HYPERLINK("…")
+        });
+      });
+      return found;
+    }
+    if (/\.(txt|csv|tsv)$/.test(name) || /^text\//.test(file.type)) return extractLinks(await file.text());
+    throw new Error('ไฟล์นี้ยังไม่รองรับ — ใช้ .txt · .csv · .xlsx · .xls');
+  }
+
+  /** เติมลิงก์ลงกล่อง: ใช้กล่องว่างก่อน · ข้ามลิงก์ที่มีอยู่แล้ว · ไม่เกิน MAX_LINKS */
+  function fillLinkBoxes(links) {
+    const have = {};
+    linkInputs().forEach((i) => { if (i.value.trim()) have[i.value.trim()] = true; });
+    const fresh = [];
+    links.forEach((l) => { if (!have[l]) { have[l] = true; fresh.push(l); } });
+    let added = 0, over = 0;
+    fresh.forEach((l) => {
+      const empty = linkInputs().find((i) => !i.value.trim());
+      if (empty) { empty.value = l; added++; }
+      else if (linkInputs().length < MAX_LINKS) { addLinkBox(l); added++; }
+      else over++;
+    });
+    updateLinkCount();
+    return { added: added, dup: links.length - fresh.length, over: over };
+  }
+
+  async function importFile(file) {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) return toast('ไฟล์ใหญ่เกิน 10MB', true);
+    const btn = $('s-import');
+    btn.disabled = true; btn.textContent = '⏳ กำลังอ่านไฟล์…';
+    try {
+      const links = await readLinksFromFile(file);
+      if (!links.length) return toast('ไม่พบลิงก์ในไฟล์ "' + file.name + '"', true);
+      const r = fillLinkBoxes(links);
+      let msg = `📂 นำเข้า ${r.added} ลิงก์จาก "${file.name}"`;
+      if (r.dup) msg += ` · ข้ามที่ซ้ำ ${r.dup}`;
+      toast(msg);
+      if (r.over) toast(`⚠️ เกิน ${MAX_LINKS} ลิงก์ — เหลืออีก ${r.over} ลิงก์ ส่งรอบนี้แล้วนำเข้าไฟล์เดิมอีกครั้ง (ลิงก์ที่ส่งแล้วจะถูกข้ามให้)`, true);
+    } catch (err) { toast(err.message, true); }
+    finally { btn.disabled = false; btn.textContent = '📂 นำเข้าจากไฟล์'; $('s-file').value = ''; }
+  }
+
   /** ล้างฟอร์มส่ง Report ทั้งหมด (Mission · ผู้โพสต์ · ลิงก์ · หมายเหตุ · สรุปผล) */
   function resetSendForm() {
     $('s-mission').value = '';
@@ -523,6 +612,12 @@
     $('s-mission').addEventListener('change', onMissionChange);
     setLinkBoxes();
     $('s-add').onclick = () => addLinkBox('', true);
+    $('s-import').onclick = () => $('s-file').click();
+    $('s-file').addEventListener('change', () => importFile($('s-file').files[0]));
+    const drop = $('s-links');
+    ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (ev) => { ev.preventDefault(); drop.classList.add('drag'); }));
+    ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, () => drop.classList.remove('drag')));
+    drop.addEventListener('drop', (ev) => { ev.preventDefault(); importFile(ev.dataTransfer.files[0]); });
     ['s-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
