@@ -70,14 +70,24 @@
     if (DEMO) {
       res = await Demo.call(body);
     } else {
+      // บางครั้ง Google ตอบหน้าเช็คสถานะ (doGet: มี "service" ไม่มี data) แทนผลจริง — มักตอนเซิร์ฟเวอร์ช้า
+      // คำสั่งอ่านอย่างเดียว → ลองใหม่เอง · submit ห้ามส่งซ้ำ → ให้ onSend ไปตรวจในประวัติแทน
+      const readOnly = ['me', 'bootstrap', 'missions', 'dashboard', 'history'].indexOf(action) >= 0;
       let lastErr;
       for (let i = 0; i < 3; i++) {           // ลองใหม่อัตโนมัติ (เน็ตสะดุด / Apps Script ยุ่ง)
         try {
           const r = await fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
           res = await r.json();
+          if (res && res.ok && res.service && res.data === undefined) {
+            if (!readOnly) throw Object.assign(new Error('UNCERTAIN'), { uncertain: true });
+            res = null;
+            throw new Error('GET_FALLBACK');
+          }
           lastErr = null;
           break;
         } catch (e) {
+          if (e.uncertain) throw e;
+          if (!readOnly && action !== 'login') throw Object.assign(new Error('UNCERTAIN'), { uncertain: true });
           lastErr = e;
           await new Promise((ok) => setTimeout(ok, 800 * (i + 1)));
         }
@@ -302,13 +312,35 @@
     btn.textContent = p.ok.length > 1 ? `กำลังส่ง ${p.ok.length} ลิงก์…` : 'กำลังส่ง…';
     const slow = setTimeout(() => { btn.textContent = 'กำลังบันทึก… อาจใช้เวลาสักครู่ อย่าเพิ่งปิดหน้านี้'; }, 3000);
     try {
-      const r = await api('submit', { missionId: $('s-mission').value, links: p.ok, poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
+      let r;
+      try {
+        r = await api('submit', { missionId: $('s-mission').value, links: p.ok, poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
+      } catch (err) {
+        if (!err.uncertain) throw err;
+        btn.textContent = 'กำลังตรวจสอบว่าบันทึกแล้วหรือยัง…';
+        r = await verifySubmitted(p.ok);
+      }
       renderSendResult(r);
       // เหลือเฉพาะลิงก์ที่ถูกข้ามไว้ในกล่อง ให้แก้แล้วส่งใหม่ได้
       $('s-link').value = (r.skipped || []).map((x) => x.link).join('\n');
       if (!(r.skipped || []).length) $('s-note').value = '';
     } catch (err) { toast(err.message, true); }
     finally { clearTimeout(slow); btn.disabled = false; state.busy = false; updateLinkCount(); }
+  }
+
+  /**
+   * ผลส่งไม่ชัดเจน (Google ตอบผิดรูป/เน็ตหลุดระหว่างรอ) → ดูประวัติเดือนนี้ว่าลิงก์ไหนเข้าแล้ว
+   * ไม่ส่งซ้ำเอง เพราะอาจบันทึกไปแล้ว
+   */
+  async function verifySubmitted(links) {
+    const now = new Date();
+    await new Promise((ok) => setTimeout(ok, 1500));
+    const rows = await api('history', { year: now.getFullYear(), month: now.getMonth() + 1 });
+    const saved = {};
+    rows.forEach((x) => { if (x.status !== 'rejected') saved[String(x.link).trim()] = true; });
+    const accepted = [], skipped = [];
+    links.forEach((l) => saved[l] ? accepted.push({ link: l }) : skipped.push({ link: l, reason: 'ยังไม่ได้บันทึก (ระบบตอบช้า) — กดส่งอีกครั้ง' }));
+    return { accepted: accepted, skipped: skipped, remaining: null };
   }
 
   // ---------- หลายลิงก์ ----------
