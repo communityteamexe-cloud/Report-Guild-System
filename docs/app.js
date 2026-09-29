@@ -322,11 +322,17 @@
         btn.textContent = 'กำลังตรวจสอบว่าบันทึกแล้วหรือยัง…';
         r = await verifySubmitted(p.ok);
       }
+      const leftover = (r.skipped || []).map((x) => x.link).concat(p.bad);
+      if (!leftover.length && (r.accepted || []).length) {
+        // ส่งครบทุกลิงก์ → ล้างฟอร์ม แล้วกลับหน้าคะแนน (โหลดใหม่ให้เห็นรายการรอตรวจ)
+        resetSendForm();
+        toast(`✅ ส่ง Report ${r.accepted.length} ลิงก์เรียบร้อย — รอทีมงานตรวจ`);
+        switchPage('dash');
+        return;
+      }
+      // มีลิงก์ค้าง → อยู่หน้าเดิม โชว์สรุป + เหลือเฉพาะกล่องที่ต้องแก้
       renderSendResult(r);
-      // เหลือเฉพาะลิงก์ที่ถูกข้ามไว้ในกล่อง ให้แก้แล้วส่งใหม่ได้
-      // กล่องที่ค้างไว้ให้แก้: ลิงก์ที่ระบบข้าม + ข้อความที่ไม่ใช่ลิงก์ (ไม่ได้ส่งไปเลย)
-      setLinkBoxes((r.skipped || []).map((x) => x.link).concat(p.bad));
-      if (!(r.skipped || []).length) $('s-note').value = '';
+      setLinkBoxes(leftover);
     } catch (err) { toast(err.message, true); }
     finally { clearTimeout(slow); btn.disabled = false; state.busy = false; updateLinkCount(); }
   }
@@ -378,6 +384,16 @@
     $('s-links').appendChild(row);
     if (focus) inp.focus();
     updateLinkCount();
+  }
+
+  /** ล้างฟอร์มส่ง Report ทั้งหมด (Mission · ผู้โพสต์ · ลิงก์ · หมายเหตุ · สรุปผล) */
+  function resetSendForm() {
+    $('s-mission').value = '';
+    $('s-poster').value = '';
+    $('s-note').value = '';
+    $('s-result').innerHTML = '';
+    setLinkBoxes();
+    onMissionChange();
   }
 
   /** ล้างกล่องทั้งหมด แล้วใส่ลิงก์ที่ให้มา (ไม่มี = กล่องว่าง 1 กล่อง) */
