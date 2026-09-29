@@ -64,7 +64,8 @@ function setup() {
   Logger.log('ADMIN_KEY: ' + props.getProperty('ADMIN_KEY') + '  (ใช้ใน CTM 🐶 เท่านั้น ห้ามเผยแพร่)');
 }
 
-/** Mission เริ่มต้นจากไฟล์ "09 - Guild #New Policy and Diraction" (มีผลตั้งแต่ ม.ค. 2026) */
+/** Mission เริ่มต้นจากไฟล์ "09 - Guild #New Policy and Diraction" (มีผลตั้งแต่ ม.ค. 2026)
+ *  Zone4 ไม่มี Feedback — ตามกติกา Z4 "Feedback จะไม่ถูกนับรวมในคะแนน Mission" · มีเฉพาะ TOSM/9Yin (+ Cute Guild) */
 function seedMissions_() {
   const s = '2026-01';
   const tosmLike = function (g) {
@@ -79,8 +80,7 @@ function seedMissions_() {
     ['z4-M1', 'z4', 'basic', 'สร้าง Content ลงกลุ่ม Facebook Official', 'Content ที่เกี่ยวข้องกับเกม · ใส่ Hashtag #รีวิวแฟชั่น #รีวิวเกม · จำกัด 1 Facebook = 10 Content / เดือน · Content Creator Extreme ไม่นับ', 20, 10, 'poster', s, '', true, false],
     ['z4-M2', 'z4', 'basic', 'แชร์โพสต์กิจกรรม / โปรโมชั่น จาก Fanpage Official', 'แชร์ภายใน 3 วันหลังโพสต์ · ตั้งเป็น Public · ใส่แคปชั่น + Hashtag', 10, 50, 'guild', s, '', true, false],
     ['z4-M3', 'z4', 'basic', 'รวมตี้ 8 คนขึ้นไป แช๊ะภาพประจำเดือน', 'โพสต์รูปรวมตี้ลงกลุ่ม Facebook Official แบบสาธารณะ', 50, 4, 'guild', s, '', true, false],
-    ['z4-M4', 'z4', 'basic', 'กิลด์วอยกตี้ เล่นด้วยกันรับด้วยกัน (Gang War)', 'แคปรายละเอียดในแชทกิลด์ ภาพต้องมี Timestamp', 10, 2, 'guild', s, '', true, false],
-    ['z4-FB', 'z4', 'feedback', 'ส่ง Feedback เกม', 'อ้างอิงแพทช์ล่าสุด อธิบายชัดเจน', 10, '', 'guild', s, '', true, false]
+    ['z4-M4', 'z4', 'basic', 'กิลด์วอยกตี้ เล่นด้วยกันรับด้วยกัน (Gang War)', 'แคปรายละเอียดในแชทกิลด์ ภาพต้องมี Timestamp', 10, 2, 'guild', s, '', true, false]
   ].concat(tosmLike('tosm')).concat(tosmLike('9yin'));
   const sh = getSheet_('Missions');
   sh.getRange(2, 1, rows.length, HEAD.Missions.length).setValues(rows);
