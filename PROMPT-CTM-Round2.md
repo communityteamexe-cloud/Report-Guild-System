@@ -29,8 +29,9 @@
 | `adminCreateGuild` | `game` (z4/tosm/9yin), `nameTH`, `nameEN` (a-z0-9), `guildId` | `{email, password, game, nameTH}` — **รหัสโชว์ครั้งเดียว** |
 | `adminResetPassword` | `email` | `{email, password}` — รหัสใหม่ + บังคับเปลี่ยน |
 | `adminSetGuildActive` | `email`, `active` (bool) | `true` |
-| `adminListReports` | `year` (ค.ศ.), `month?`, `game?`, `status?` (pending/approved/rejected) | `[{id, createdAt, ym, email, game, guild, missionId, mission, points, poster, link, note, status, approvedPoints, reason}]` เรียงใหม่→เก่า |
+| `adminListReports` | `year` (ค.ศ.), `month?`, `game?`, `status?` (pending/approved/rejected) | `[{id, createdAt, ym, email, game, guild, missionId, mission, points, poster, link, note, status, approvedPoints, reason, batchId}]` เรียงใหม่→เก่า |
 | `adminReview` | `reportId`, `status` (approved/rejected/pending), `points?` (ไม่ใส่ = คะแนน Mission), `reason` (**บังคับเมื่อ rejected**), `by` | `true` |
+| `adminReviewMany` | `reportIds[]` **หรือ** `batchId` (ทั้งชุด), `status`, `points?`, `reason` (บังคับเมื่อ rejected), `by` | `{updated, notFound[]}` — **ใช้ตัวนี้กับปุ่มอนุมัติทีเดียวหลายรายการ** |
 | `adminListMissions` | `game?` | แถว Mission ทั้งหมด (MissionID, Game, Group, Name, Detail, Points, MaxPerMonth, MaxScope, StartYM, EndYM, Active, CuteGuild) |
 | `adminUpsertMission` | `mission` (object ตามคอลัมน์ด้านบน · ไม่มี MissionID = เพิ่มใหม่) | `MissionID` |
 | `adminListRankRules` | — | `[{Game, FromYear, SS, S}]` |
@@ -53,6 +54,7 @@
    - ปุ่ม ✅ อนุมัติ / ❌ ปฏิเสธ (ต้องพิมพ์เหตุผล — มีตัวเลือกสำเร็จรูป เช่น "ไม่ได้ติด Hashtag", "ลิงก์ไม่เป็นสาธารณะ", "ส่งเกินช่วงเวลา" + พิมพ์เองได้)
    - Mission `extra` → มีช่องแก้คะแนนก่อนอนุมัติ (ค่าเริ่มต้น = คะแนน Mission)
    - เลือกหลายรายการแล้ว **อนุมัติทีเดียว** ได้ · ย้อนสถานะกลับเป็น pending ได้ (กดผิด)
+   - **กิลด์ส่งหลายลิงก์ในครั้งเดียวได้** → Report ที่มี `batchId` เดียวกัน **รวมเป็นการ์ดเดียว** (หัวการ์ด: กิลด์ · Mission · จำนวนลิงก์ · คะแนนรวม) + ปุ่ม **"อนุมัติทั้งชุด"** (`adminReviewMany` + `batchId`) · กางดูลิงก์ทีละอันแล้วปฏิเสธเฉพาะอันที่มีปัญหาได้ · `batchId` ว่าง = ส่งลิงก์เดียว แสดงแบบปกติ
    - `by` = ชื่อผู้ทำตามระบบ Activity Log ของ CTM
    - Badge จำนวนรอตรวจที่เมนู Sidebar
 2. **🏆 อันดับ**

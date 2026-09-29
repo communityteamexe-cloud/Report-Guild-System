@@ -287,13 +287,56 @@
   async function onSend(e) {
     e.preventDefault();
     const btn = $('s-btn');
+    const p = parseLinks();
+    if (!p.ok.length) return toast('กรุณาใส่ลิงก์หลักฐานที่ขึ้นต้นด้วย http:// หรือ https:// อย่างน้อย 1 ลิงก์', true);
+    if (p.ok.length > MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' ลิงก์', true);
     btn.disabled = true; state.busy = true;
+    btn.textContent = p.ok.length > 1 ? `กำลังส่ง ${p.ok.length} ลิงก์…` : 'กำลังส่ง…';
     try {
-      await api('submit', { missionId: $('s-mission').value, link: $('s-link').value.trim(), poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
-      toast('ส่ง Report เรียบร้อย รอทีมงานตรวจ');
-      $('s-link').value = ''; $('s-note').value = '';
+      const r = await api('submit', { missionId: $('s-mission').value, links: p.ok, poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
+      renderSendResult(r);
+      // เหลือเฉพาะลิงก์ที่ถูกข้ามไว้ในกล่อง ให้แก้แล้วส่งใหม่ได้
+      $('s-link').value = (r.skipped || []).map((x) => x.link).join('\n');
+      if (!(r.skipped || []).length) $('s-note').value = '';
     } catch (err) { toast(err.message, true); }
-    finally { btn.disabled = false; state.busy = false; }
+    finally { btn.disabled = false; state.busy = false; updateLinkCount(); }
+  }
+
+  // ---------- หลายลิงก์ ----------
+  const MAX_LINKS = 50;
+
+  /** แยกลิงก์จากกล่อง (ขึ้นบรรทัด/เว้นวรรค) → ok / bad / dup */
+  function parseLinks() {
+    const seen = {}, out = { ok: [], bad: [], dup: [] };
+    $('s-link').value.split(/\s+/).map((s) => s.trim()).filter(Boolean).forEach((s) => {
+      if (!/^https?:\/\/\S+$/i.test(s)) out.bad.push(s);
+      else if (seen[s]) out.dup.push(s);
+      else { seen[s] = true; out.ok.push(s); }
+    });
+    return out;
+  }
+
+  function updateLinkCount() {
+    const p = parseLinks();
+    const parts = [];
+    if (p.ok.length) parts.push(`<span class="ok">✅ ลิงก์ถูกต้อง ${p.ok.length}</span>`);
+    if (p.dup.length) parts.push(`<span class="warn">⚠️ ซ้ำในกล่อง ${p.dup.length} (จะส่งครั้งเดียว)</span>`);
+    if (p.bad.length) parts.push(`<span class="bad">❌ ไม่ใช่ลิงก์ ${p.bad.length}</span>`);
+    if (p.ok.length > MAX_LINKS) parts.push(`<span class="bad">เกิน ${MAX_LINKS} ลิงก์</span>`);
+    $('s-count').innerHTML = parts.join(' · ');
+    $('s-btn').textContent = p.ok.length > 1 ? `ส่ง Report (${p.ok.length} ลิงก์)` : 'ส่ง Report';
+  }
+
+  function renderSendResult(r) {
+    const acc = r.accepted || [], sk = r.skipped || [];
+    const rem = r.remaining == null ? '' : ` · เดือนนี้ส่งได้อีก ${r.remaining} ครั้ง`;
+    $('s-result').innerHTML = `<div class="result ${sk.length ? 'mixed' : 'good'}">
+      <b>${acc.length ? `✅ ส่งสำเร็จ ${acc.length} ลิงก์ — รอทีมงานตรวจ` : '❌ ไม่มีลิงก์ที่ส่งได้'}</b>${rem}
+      ${sk.length ? `<div class="note">ข้าม ${sk.length} ลิงก์ (ยังอยู่ในกล่องด้านบน แก้แล้วส่งใหม่ได้):</div><ul>${sk.map((x) => `<li><span class="muted">${esc(x.link)}</span> — ${esc(x.reason)}</li>`).join('')}</ul>` : ''}
+      ${acc.length ? '<a href="#" id="go-hist">ดูในประวัติ →</a>' : ''}</div>`;
+    const go = $('go-hist');
+    if (go) go.onclick = (ev) => { ev.preventDefault(); switchPage('hist'); };
+    if (acc.length) toast(`ส่ง Report ${acc.length} ลิงก์เรียบร้อย`);
   }
 
   // ---------- history ----------
@@ -341,10 +384,14 @@
     submit(b) {
       const m = this.missions.find((x) => x.id === b.missionId);
       if (!m) throw new Error('กรุณาเลือก Mission');
-      if (!/^https?:\/\/\S+$/i.test(b.link)) throw new Error('กรุณาใส่ลิงก์หลักฐานที่ขึ้นต้นด้วย http:// หรือ https://');
       if (m.maxScope === 'poster' && !b.poster) throw new Error('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์');
-      this.reports.unshift({ id: 'R' + Date.now(), createdAt: new Date().toISOString(), missionId: m.id, mission: m.name, poster: b.poster, link: b.link, status: 'pending', approvedPoints: null, reason: '' });
-      return { reportId: 'demo' };
+      const accepted = [], skipped = [];
+      b.links.forEach((link) => {
+        if (this.reports.some((x) => x.link === link)) return skipped.push({ link, reason: 'ลิงก์นี้ส่งไปแล้วในเดือนนี้' });
+        this.reports.unshift({ id: 'R' + Date.now(), createdAt: new Date().toISOString(), missionId: m.id, mission: m.name, poster: b.poster, link, status: 'pending', approvedPoints: null, reason: '' });
+        accepted.push({ link, reportId: 'demo' });
+      });
+      return { accepted, skipped, remaining: m.maxPerMonth ? Math.max(0, m.maxPerMonth - accepted.length) : null };
     },
     history(b) {
       const now = new Date();
@@ -373,6 +420,7 @@
     $('f-pass').addEventListener('submit', onPass);
     $('f-send').addEventListener('submit', onSend);
     $('s-mission').addEventListener('change', onMissionChange);
+    $('s-link').addEventListener('input', updateLinkCount);
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
     $('b-out').onclick = () => logout(false);

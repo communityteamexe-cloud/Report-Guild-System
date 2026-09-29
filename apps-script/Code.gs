@@ -26,7 +26,7 @@ const HEAD = {
   Missions:  ['MissionID', 'Game', 'Group', 'Name', 'Detail', 'Points', 'MaxPerMonth', 'MaxScope', 'StartYM', 'EndYM', 'Active', 'CuteGuild'],
   RankRules: ['Game', 'FromYear', 'SS', 'S'],
   Reports:   ['ReportID', 'CreatedAt', 'YM', 'Email', 'Game', 'GuildNameTH', 'MissionID', 'MissionName', 'Points',
-              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy']
+              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID']
 };
 const STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' };
 
@@ -205,6 +205,7 @@ const ADMIN_ACTIONS = {
   adminSetGuildActive: function (r) { return setGuildField_(r.email, 'Active', !!r.active); },
   adminListReports: function (r) { return listReports_(Number(r.year), r.month ? Number(r.month) : null, r.game, r.status); },
   adminReview: function (r) { return reviewReport_(r); },
+  adminReviewMany: function (r) { return reviewMany_(r); },
   adminListMissions: function (r) { return listMissions_(r.game); },
   adminUpsertMission: function (r) { return upsertMission_(r.mission); },
   adminListRankRules: function () { return readRows_('RankRules'); },
@@ -504,64 +505,112 @@ function rankOf_(score, rule) {
 // Reports
 // ===================================================================
 
-/** กิลด์ส่ง Report → สถานะ pending · ตรวจเพดานต่อเดือน (นับ pending+approved) */
+/**
+ * กิลด์ส่ง Report → สถานะ pending
+ * รับได้ทั้ง link เดียว หรือ links หลายลิงก์ (สูงสุด MAX_LINKS_PER_BATCH) · ทุกลิงก์ = 1 แถว ผูกด้วย BatchID เดียวกัน
+ * ลิงก์ที่ไม่ผ่าน (ไม่ใช่ลิงก์ / ซ้ำ / เกินเพดาน) ถูกข้าม ไม่ทำให้ทั้งชุดล้ม
+ */
+const MAX_LINKS_PER_BATCH = 50;
+
 function submitReport_(g, r) {
   const now = new Date();
   const ym = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
-  const link = String(r.link || '').trim();
-  if (!/^https?:\/\/\S+$/i.test(link)) throw new Error('กรุณาใส่ลิงก์หลักฐานที่ขึ้นต้นด้วย http:// หรือ https://');
   const m = missionsFor_(g.Game, ym).filter(function (x) { return x.id === r.missionId; })[0];
-  if (!m) throw new Error('Mission นี้ไม่เปิดให้ส่งในเดือนนี้');
+  if (!m) throw new Error('กรุณาเลือก Mission (หรือ Mission นี้ไม่เปิดให้ส่งในเดือนนี้)');
   const poster = String(r.poster || '').trim();
   if (m.maxScope === 'poster' && !poster) throw new Error('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์');
 
+  const raw = Array.isArray(r.links) ? r.links : String(r.links || r.link || '').split(/\s+/);
+  const links = raw.map(function (s) { return String(s || '').trim(); }).filter(String);
+  if (!links.length) throw new Error('กรุณาใส่ลิงก์หลักฐานอย่างน้อย 1 ลิงก์');
+  if (links.length > MAX_LINKS_PER_BATCH) throw new Error('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS_PER_BATCH + ' ลิงก์');
+
   return withLock_(function () {
     const year = now.getFullYear();
-    const rows = readReports_(year).filter(function (x) {
-      return x.Email === g.Email && x.YM === ym && x.MissionID === m.id;
+    const mine = readReports_(year).filter(function (x) {
+      return x.Email === g.Email && x.YM === ym && x.MissionID === m.id && x.Status !== STATUS.REJECTED;
     });
-    if (rows.some(function (x) { return String(x.Link).trim() === link && x.Status !== STATUS.REJECTED; }))
-      throw new Error('ลิงก์นี้ส่งไปแล้วในเดือนนี้');
-    if (m.maxPerMonth) {
-      const used = rows.filter(function (x) {
-        return x.Status !== STATUS.REJECTED && (m.maxScope !== 'poster' || String(x.Poster).trim().toLowerCase() === poster.toLowerCase());
-      }).length;
-      if (used >= m.maxPerMonth) throw new Error('ส่ง Mission นี้ครบ ' + m.maxPerMonth + ' ครั้งของเดือนนี้แล้ว' + (m.maxScope === 'poster' ? ' (สำหรับ Facebook นี้)' : ''));
+    const used = {};                                   // ลิงก์ที่ส่งแล้ว (รวมในชุดนี้)
+    mine.forEach(function (x) { used[String(x.Link).trim()] = true; });
+    let count = mine.filter(function (x) {
+      return m.maxScope !== 'poster' || String(x.Poster).trim().toLowerCase() === poster.toLowerCase();
+    }).length;
+
+    const batchId = links.length > 1 ? 'B' + year + '-' + Utilities.getUuid().slice(0, 8) : '';
+    const accepted = [], skipped = [], rows = [];
+    links.forEach(function (link) {
+      if (!/^https?:\/\/\S+$/i.test(link)) return skipped.push({ link: link, reason: 'ไม่ใช่ลิงก์ (ต้องขึ้นต้น http:// หรือ https://)' });
+      if (used[link]) return skipped.push({ link: link, reason: 'ลิงก์นี้ส่งไปแล้วในเดือนนี้' });
+      if (m.maxPerMonth && count >= m.maxPerMonth) return skipped.push({ link: link, reason: 'เกินเพดาน ' + m.maxPerMonth + ' ครั้ง/เดือน' + (m.maxScope === 'poster' ? ' ของ Facebook นี้' : '') });
+      used[link] = true; count++;
+      const id = 'R' + year + '-' + Utilities.getUuid().slice(0, 8);
+      accepted.push({ link: link, reportId: id });
+      rows.push({ ReportID: id, CreatedAt: now, YM: "'" + ym, Email: g.Email, Game: g.Game, GuildNameTH: g.NameTH,
+        MissionID: m.id, MissionName: m.name, Points: m.points, Poster: poster, Link: link,
+        Note: String(r.note || '').slice(0, 500), Status: STATUS.PENDING, ApprovedPoints: '', Reason: '',
+        ReviewedAt: '', ReviewedBy: '', BatchID: batchId });
+    });
+    if (rows.length) {
+      appendRows_(reportSheetName_(year), rows);
+      bumpVersion_(g.Email);
     }
-    const id = 'R' + year + '-' + Utilities.getUuid().slice(0, 8);
-    appendRow_(reportSheetName_(year), { ReportID: id, CreatedAt: now, YM: "'" + ym, Email: g.Email, Game: g.Game,
-      GuildNameTH: g.NameTH, MissionID: m.id, MissionName: m.name, Points: m.points, Poster: poster,
-      Link: link, Note: String(r.note || '').slice(0, 500), Status: STATUS.PENDING, ApprovedPoints: '', Reason: '',
-      ReviewedAt: '', ReviewedBy: '' });
-    bumpVersion_(g.Email);
-    return { reportId: id };
+    return { batchId: batchId, accepted: accepted, skipped: skipped,
+      reportId: accepted.length === 1 ? accepted[0].reportId : undefined,
+      remaining: m.maxPerMonth ? Math.max(0, m.maxPerMonth - count) : null };
   });
 }
 
-/** ทีมอนุมัติ/ปฏิเสธ · points ใส่ได้ (เช่น Mission เพิ่มเติม 10–20) ไม่ใส่ = ใช้คะแนน Mission */
+/** ทีมอนุมัติ/ปฏิเสธ 1 รายการ (คงไว้ให้ CTM ที่เรียกแบบเดิม) */
 function reviewReport_(r) {
-  const id = String(r.reportId || '');
-  const m = id.match(/^R(\d{4})-/);
-  if (!m) throw new Error('ReportID ไม่ถูกต้อง');
+  const res = reviewMany_({ reportIds: [r.reportId], status: r.status, points: r.points, reason: r.reason, by: r.by });
+  if (res.notFound.length) throw new Error('ไม่พบ Report ' + r.reportId);
+  return true;
+}
+
+/**
+ * อนุมัติ/ปฏิเสธหลายรายการในครั้งเดียว — reportIds[] หรือ batchId (ทั้งชุด)
+ * points: ไม่ใส่ = คะแนน Mission ของแต่ละแถว · reason บังคับเมื่อ rejected
+ */
+function reviewMany_(r) {
   if ([STATUS.APPROVED, STATUS.REJECTED, STATUS.PENDING].indexOf(r.status) < 0) throw new Error('status ไม่ถูกต้อง');
   if (r.status === STATUS.REJECTED && !String(r.reason || '').trim()) throw new Error('กรุณาใส่เหตุผลที่ปฏิเสธ');
+  let ids = (r.reportIds || []).map(String);
+  const batch = String(r.batchId || '');
+  const years = {};
+  ids.forEach(function (id) { const y = id.match(/^R(\d{4})-/); if (!y) throw new Error('ReportID ไม่ถูกต้อง: ' + id); years[y[1]] = true; });
+  if (batch) { const y = batch.match(/^B(\d{4})-/); if (!y) throw new Error('BatchID ไม่ถูกต้อง'); years[y[1]] = true; }
+  if (!ids.length && !batch) throw new Error('ต้องระบุ reportIds หรือ batchId');
+
   return withLock_(function () {
-    const sh = getReportSheet_(Number(m[1]));
-    const data = sh.getDataRange().getValues();
-    const col = indexMap_(data[0]);
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][col.ReportID] !== id) continue;
-      const pts = r.status === STATUS.APPROVED
-        ? (r.points === undefined || r.points === null || r.points === '' ? Number(data[i][col.Points]) : Number(r.points))
-        : '';
-      const vals = {};
-      vals.Status = r.status; vals.ApprovedPoints = pts; vals.Reason = r.reason || '';
-      vals.ReviewedAt = r.status === STATUS.PENDING ? '' : new Date(); vals.ReviewedBy = r.by || '';
-      Object.keys(vals).forEach(function (k) { sh.getRange(i + 1, col[k] + 1).setValue(vals[k]); });
-      bumpVersion_(data[i][col.Email]);
-      return true;
-    }
-    throw new Error('ไม่พบ Report ' + id);
+    const want = {}; ids.forEach(function (id) { want[id] = true; });
+    const done = {}, emails = {};
+    const now = new Date();
+    Object.keys(years).forEach(function (y) {
+      const sh = getReportSheet_(Number(y));
+      const data = sh.getDataRange().getValues();
+      const col = indexMap_(data[0]);
+      let touched = false;
+      for (let i = 1; i < data.length; i++) {
+        const id = data[i][col.ReportID];
+        const inBatch = batch && col.BatchID !== undefined && data[i][col.BatchID] === batch;
+        if (!want[id] && !inBatch) continue;
+        data[i][col.Status] = r.status;
+        data[i][col.ApprovedPoints] = r.status === STATUS.APPROVED
+          ? (r.points === undefined || r.points === null || r.points === '' ? Number(data[i][col.Points]) : Number(r.points)) : '';
+        data[i][col.Reason] = r.reason || '';
+        data[i][col.ReviewedAt] = r.status === STATUS.PENDING ? '' : now;
+        data[i][col.ReviewedBy] = r.by || '';
+        done[id] = true; emails[data[i][col.Email]] = true; touched = true;
+      }
+      // เขียนเฉพาะคอลัมน์ผลตรวจ (Status..ReviewedBy ติดกัน) ทีเดียวทั้งแท็บ
+      if (touched && data.length > 1) {
+        const c0 = col.Status, c1 = col.ReviewedBy;
+        sh.getRange(2, c0 + 1, data.length - 1, c1 - c0 + 1)
+          .setValues(data.slice(1).map(function (row) { return row.slice(c0, c1 + 1); }));
+      }
+    });
+    Object.keys(emails).forEach(bumpVersion_);
+    return { updated: Object.keys(done).length, notFound: ids.filter(function (id) { return !done[id]; }) };
   });
 }
 
@@ -582,7 +631,7 @@ function reportOut_(x) {
   return { id: x.ReportID, createdAt: x.CreatedAt instanceof Date ? x.CreatedAt.toISOString() : String(x.CreatedAt),
     ym: x.YM, email: x.Email, game: x.Game, guild: x.GuildNameTH, missionId: x.MissionID, mission: x.MissionName,
     points: Number(x.Points) || 0, poster: x.Poster, link: x.Link, note: x.Note, status: x.Status,
-    approvedPoints: x.ApprovedPoints === '' ? null : Number(x.ApprovedPoints), reason: x.Reason };
+    approvedPoints: x.ApprovedPoints === '' ? null : Number(x.ApprovedPoints), reason: x.Reason, batchId: x.BatchID || '' };
 }
 
 // ===================================================================
@@ -678,7 +727,15 @@ function getSheet_(name) {
     sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
     sh.setFrozenRows(1);
   }
+  else if (name.indexOf('Reports_') === 0) ensureHead_(sh, HEAD.Reports);
   return sh;
+}
+
+/** เพิ่มคอลัมน์ที่ขาดต่อท้าย (แท็บเก่าก่อนมีคอลัมน์ใหม่ เช่น BatchID) */
+function ensureHead_(sh, head) {
+  const cur = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
+  const miss = head.filter(function (h) { return cur.indexOf(h) < 0; });
+  if (miss.length) sh.getRange(1, cur.length + 1, 1, miss.length).setValues([miss]).setFontWeight('bold');
 }
 
 function reportSheetName_(year) { return 'Reports_' + year; }
@@ -731,6 +788,15 @@ function appendRow_(name, obj) {
   const sh = getSheet_(name);
   const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   sh.appendRow(head.map(function (h) { return obj[h] === undefined ? '' : obj[h]; }));
+  if (CACHED_TABS[name]) clearRows_(name);
+}
+
+/** เพิ่มหลายแถวทีเดียว (เร็วกว่า appendRow ทีละแถว) */
+function appendRows_(name, objs) {
+  const sh = getSheet_(name);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const rows = objs.map(function (o) { return head.map(function (h) { return o[h] === undefined ? '' : o[h]; }); });
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, head.length).setValues(rows);
   if (CACHED_TABS[name]) clearRows_(name);
 }
 

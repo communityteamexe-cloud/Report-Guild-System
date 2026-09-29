@@ -117,8 +117,10 @@
             <label for="s-poster">ชื่อ Facebook ผู้โพสต์</label>
             <input id="s-poster" maxlength="100" placeholder="เช่น Somchai Gamer">
           </div>
-          <label for="s-link">ลิงก์หลักฐาน</label>
-          <input id="s-link" type="url" required placeholder="https://facebook.com/groups/...">
+          <label for="s-link">ลิงก์หลักฐาน <span class="muted" style="font-weight:400">— วางได้หลายลิงก์ บรรทัดละ 1 ลิงก์ (สูงสุด 50)</span></label>
+          <textarea id="s-link" rows="4" required placeholder="https://facebook.com/groups/.../posts/111&#10;https://facebook.com/groups/.../posts/222"></textarea>
+          <div class="note" id="s-count"></div>
+          <div id="s-result"></div>
           <label for="s-note">รายละเอียดเพิ่มเติม (ไม่บังคับ)</label>
           <textarea id="s-note" rows="3" maxlength="500"></textarea>
           <button class="btn" type="submit" id="s-btn">ส่ง Report</button>
