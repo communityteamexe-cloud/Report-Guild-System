@@ -306,6 +306,8 @@
     e.preventDefault();
     const btn = $('s-btn');
     const p = parseLinks();
+    if (!$('s-mission').value) return toast('กรุณาเลือก Mission', true);
+    if (!$('s-poster-wrap').hidden && !$('s-poster').value.trim()) return toast('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์', true);
     if (!p.ok.length) return toast('กรุณาใส่ลิงก์หลักฐานที่ขึ้นต้นด้วย http:// หรือ https:// อย่างน้อย 1 ลิงก์', true);
     if (p.ok.length > MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' ลิงก์', true);
     btn.disabled = true; state.busy = true;
@@ -322,7 +324,8 @@
       }
       renderSendResult(r);
       // เหลือเฉพาะลิงก์ที่ถูกข้ามไว้ในกล่อง ให้แก้แล้วส่งใหม่ได้
-      $('s-link').value = (r.skipped || []).map((x) => x.link).join('\n');
+      // กล่องที่ค้างไว้ให้แก้: ลิงก์ที่ระบบข้าม + ข้อความที่ไม่ใช่ลิงก์ (ไม่ได้ส่งไปเลย)
+      setLinkBoxes((r.skipped || []).map((x) => x.link).concat(p.bad));
       if (!(r.skipped || []).length) $('s-note').value = '';
     } catch (err) { toast(err.message, true); }
     finally { clearTimeout(slow); btn.disabled = false; state.busy = false; updateLinkCount(); }
@@ -346,12 +349,53 @@
   // ---------- หลายลิงก์ ----------
   const MAX_LINKS = 50;
 
-  /** แยกลิงก์จากกล่อง (ขึ้นบรรทัด/เว้นวรรค) → ok / bad / dup */
+  const linkInputs = () => Array.prototype.slice.call(document.querySelectorAll('#s-links input'));
+
+  /** เพิ่มกล่องลิงก์ 1 กล่อง (ค่าเริ่มต้นได้) */
+  function addLinkBox(value, focus) {
+    if (linkInputs().length >= MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' ลิงก์', true);
+    const row = document.createElement('div');
+    row.className = 'link-row';
+    row.innerHTML = '<span class="n"></span><input type="url" inputmode="url" placeholder="https://facebook.com/groups/..." aria-label="ลิงก์หลักฐาน"><button type="button" class="icon x" title="ลบกล่องนี้" aria-label="ลบกล่องนี้">×</button>';
+    const inp = row.querySelector('input');
+    inp.value = value || '';
+    inp.addEventListener('input', updateLinkCount);
+    inp.addEventListener('focus', warmUp);
+    // วางหลายลิงก์ทีเดียว → แตกเป็นหลายกล่องให้เอง
+    inp.addEventListener('paste', (ev) => {
+      const txt = (ev.clipboardData || window.clipboardData).getData('text') || '';
+      const parts = txt.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length < 2) return;
+      ev.preventDefault();
+      inp.value = parts.shift();
+      parts.forEach((s) => addLinkBox(s));
+      updateLinkCount();
+    });
+    row.querySelector('.x').onclick = () => {
+      if (linkInputs().length > 1) row.remove(); else inp.value = '';
+      updateLinkCount();
+    };
+    $('s-links').appendChild(row);
+    if (focus) inp.focus();
+    updateLinkCount();
+  }
+
+  /** ล้างกล่องทั้งหมด แล้วใส่ลิงก์ที่ให้มา (ไม่มี = กล่องว่าง 1 กล่อง) */
+  function setLinkBoxes(links) {
+    $('s-links').innerHTML = '';
+    (links && links.length ? links : ['']).forEach((l) => addLinkBox(l));
+  }
+
+  /** อ่านทุกกล่อง → ok / bad / dup · ทำเครื่องหมายกล่องที่มีปัญหา */
   function parseLinks() {
     const seen = {}, out = { ok: [], bad: [], dup: [] };
-    $('s-link').value.split(/\s+/).map((s) => s.trim()).filter(Boolean).forEach((s) => {
-      if (!/^https?:\/\/\S+$/i.test(s)) out.bad.push(s);
-      else if (seen[s]) out.dup.push(s);
+    linkInputs().forEach((inp, i) => {
+      const s = inp.value.trim();
+      inp.parentNode.querySelector('.n').textContent = i + 1;
+      inp.classList.remove('is-bad', 'is-dup');
+      if (!s) return;
+      if (!/^https?:\/\/\S+$/i.test(s)) { out.bad.push(s); inp.classList.add('is-bad'); }
+      else if (seen[s]) { out.dup.push(s); inp.classList.add('is-dup'); }
       else { seen[s] = true; out.ok.push(s); }
     });
     return out;
@@ -361,7 +405,7 @@
     const p = parseLinks();
     const parts = [];
     if (p.ok.length) parts.push(`<span class="ok">✅ ลิงก์ถูกต้อง ${p.ok.length}</span>`);
-    if (p.dup.length) parts.push(`<span class="warn">⚠️ ซ้ำในกล่อง ${p.dup.length} (จะส่งครั้งเดียว)</span>`);
+    if (p.dup.length) parts.push(`<span class="warn">⚠️ ลิงก์ซ้ำ ${p.dup.length} (จะส่งครั้งเดียว)</span>`);
     if (p.bad.length) parts.push(`<span class="bad">❌ ไม่ใช่ลิงก์ ${p.bad.length}</span>`);
     if (p.ok.length > MAX_LINKS) parts.push(`<span class="bad">เกิน ${MAX_LINKS} ลิงก์</span>`);
     $('s-count').innerHTML = parts.join(' · ');
@@ -461,8 +505,9 @@
     $('f-pass').addEventListener('submit', onPass);
     $('f-send').addEventListener('submit', onSend);
     $('s-mission').addEventListener('change', onMissionChange);
-    $('s-link').addEventListener('input', updateLinkCount);
-    ['s-link', 's-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
+    setLinkBoxes();
+    $('s-add').onclick = () => addLinkBox('', true);
+    ['s-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
     $('b-out').onclick = () => logout(false);

@@ -108,7 +108,7 @@
     <!-- Send -->
     <div class="page" id="p-send">
       <div class="two">
-        <form class="card" id="f-send">
+        <form class="card" id="f-send" novalidate>
           <h2>ส่ง Report</h2>
           <p class="muted" id="s-sub"></p>
           <label for="s-mission">Mission</label>
@@ -117,8 +117,9 @@
             <label for="s-poster">ชื่อ Facebook ผู้โพสต์</label>
             <input id="s-poster" maxlength="100" placeholder="เช่น Somchai Gamer">
           </div>
-          <label for="s-link">ลิงก์หลักฐาน <span class="muted" style="font-weight:400">— วางได้หลายลิงก์ บรรทัดละ 1 ลิงก์ (สูงสุด 50)</span></label>
-          <textarea id="s-link" rows="4" required placeholder="https://facebook.com/groups/.../posts/111&#10;https://facebook.com/groups/.../posts/222"></textarea>
+          <label>ลิงก์หลักฐาน <span class="muted" style="font-weight:400">— 1 กล่อง = 1 ลิงก์ (สูงสุด 50)</span></label>
+          <div id="s-links" class="links"></div>
+          <button type="button" class="btn ghost add" id="s-add">＋ เพิ่มลิงก์</button>
           <div class="note" id="s-count"></div>
           <div id="s-result"></div>
           <label for="s-note">รายละเอียดเพิ่มเติม (ไม่บังคับ)</label>
