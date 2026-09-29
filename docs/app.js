@@ -96,7 +96,9 @@
   async function onLogin(e) {
     e.preventDefault();
     const btn = e.submitter || e.target.querySelector('button');
+    const label = btn.textContent;
     btn.disabled = true;
+    btn.textContent = 'กำลังเข้าสู่ระบบ…';
     try {
       const remember = $('l-remember').checked;
       const email = $('l-email').value.trim();
@@ -108,7 +110,7 @@
       $('l-pass').value = '';
       d.guild.mustChange ? openPass(true) : enterApp();
     } catch (err) { toast(err.message, true); }
-    finally { btn.disabled = false; }
+    finally { btn.disabled = false; btn.textContent = label; }
   }
 
   function openPass(forced) {
@@ -126,7 +128,7 @@
     btn.disabled = true;
     try {
       await api('changePassword', { oldPassword: $('p-old').value, newPassword: $('p-new').value });
-      state.guild.mustChange = false;
+      if (state.guild) state.guild.mustChange = false;
       toast('เปลี่ยนรหัสผ่านเรียบร้อย');
       enterApp();
     } catch (err) { toast(err.message, true); }
@@ -155,19 +157,44 @@
     });
   }
 
-  function enterApp() {
-    const g = state.guild;
+  function showGuild(g) {
     $('g-name').textContent = g.nameTH;
     $('g-game').textContent = g.gameName + ' · Guild ID ' + g.guildId + (DEMO ? ' · DEMO' : '');
-    show('v-app');
-    switchPage('dash');
-    loadMissions();
-    startRefresh();
   }
 
-  function switchPage(p) {
+  /** เข้าแอป: ขอ bootstrap ครั้งเดียว (กิลด์ + Mission + คะแนน) */
+  async function enterApp() {
+    if (state.guild) showGuild(state.guild);
+    show('v-app');
+    switchPage('dash', true);
+    setDashLoading(true);
+    const now = new Date();
+    try {
+      const b = DEMO
+        ? { guild: state.guild, missions: await api('missions'), dashboard: await api('dashboard', { year: now.getFullYear(), month: now.getMonth() + 1 }) }
+        : await api('bootstrap', { year: now.getFullYear(), month: now.getMonth() + 1 });
+      state.guild = b.guild;
+      showGuild(b.guild);
+      renderMissions(b.missions);
+      renderDash(b.dashboard);
+      startRefresh();
+    } catch (err) { toast(err.message, true); }
+    finally { setDashLoading(false); }
+  }
+
+  /** สถานะกำลังโหลดของหน้าคะแนน (ตัวเลขกระพริบแทนขีด) */
+  function setDashLoading(on) {
+    $('p-dash').classList.toggle('loading', on);
+    if (on) {
+      ['k-month', 'k-year', 'k-pend', 'k-rej'].forEach((id) => { if ($(id).textContent === '–') $(id).textContent = '···'; });
+      if ($('r-title').textContent === '–') $('r-title').textContent = 'กำลังโหลดคะแนน…';
+    }
+  }
+
+  function switchPage(p, skipLoad) {
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.p === p));
     document.querySelectorAll('.page').forEach((x) => x.classList.toggle('on', x.id === 'p-' + p));
+    if (skipLoad) return;
     if (p === 'dash') loadDash();
     if (p === 'hist') loadHist();
     if (p === 'send') loadMissions();
@@ -187,10 +214,12 @@
   // ---------- dashboard ----------
   async function loadDash(silent) {
     const y = Number($('d-year').value), m = Number($('d-month').value);
+    if (!silent) setDashLoading(true);
     try {
       const d = await api('dashboard', { year: y, month: m });
       renderDash(d);
     } catch (err) { if (!silent) toast(err.message, true); }
+    finally { if (!silent) setDashLoading(false); }
   }
 
   function renderDash(d) {
@@ -228,7 +257,13 @@
   async function loadMissions() {
     try {
       const now = new Date();
-      state.missions = await api('missions', { year: now.getFullYear(), month: now.getMonth() + 1 });
+      renderMissions(await api('missions', { year: now.getFullYear(), month: now.getMonth() + 1 }));
+    } catch (err) { toast(err.message, true); }
+  }
+
+  function renderMissions(list) {
+      const now = new Date();
+      state.missions = list;
       $('s-sub').textContent = state.guild.nameTH + ' · ' + state.guild.gameName + ' · เดือน ' + MONTHS[now.getMonth()] + ' ' + (now.getFullYear() + 543);
       const groups = { basic: 'Mission พื้นฐาน', feedback: 'Feedback', extra: '⭐ Mission เพิ่มเติม' };
       const cur = $('s-mission').value;
@@ -238,7 +273,6 @@
       }).join('');
       if (cur) $('s-mission').value = cur;
       onMissionChange();
-    } catch (err) { toast(err.message, true); }
   }
 
   function onMissionChange() {
@@ -355,7 +389,8 @@
     const saved = tokenStore.get();
     if (saved && !DEMO) {
       state.token = saved;
-      api('me').then((g) => { state.guild = g; g.mustChange ? openPass(true) : enterApp(); }).catch(() => show('v-login'));
+      // เปิดหน้าแอปทันทีพร้อมสถานะโหลด แล้ว bootstrap ครั้งเดียว (ถ้ารหัสต้องเปลี่ยน/หมดอายุ api() พาไปหน้าที่ถูกเอง)
+      enterApp().then(() => { if (!state.guild) show('v-login'); });
     } else {
       show('v-login');
     }

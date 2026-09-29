@@ -59,6 +59,7 @@ function setup() {
   if (getSheet_('RankRules').getLastRow() < 2) seedRankRules_();
   if (!props.getProperty('ADMIN_KEY')) props.setProperty('ADMIN_KEY', Utilities.getUuid().replace(/-/g, ''));
 
+  clearAllCache();
   Logger.log('SHEET: https://docs.google.com/spreadsheets/d/' + ssId);
   Logger.log('ADMIN_KEY: ' + props.getProperty('ADMIN_KEY') + '  (ใช้ใน CTM 🐶 เท่านั้น ห้ามเผยแพร่)');
 }
@@ -125,6 +126,11 @@ function doPost(e) {
 
 const GUILD_ACTIONS = {
   me: function (g) { return publicGuild_(g); },
+  // เปิดเว็บครั้งเดียวได้ครบ: กิลด์ + Mission เดือนนี้ + คะแนน (ลดจาก 3 คำขอเหลือ 1)
+  bootstrap: function (g, r) {
+    return { guild: publicGuild_(g), missions: missionsFor_(g.Game, ymOf_(r.year, r.month)),
+      dashboard: dashboard_(g, Number(r.year), Number(r.month)) };
+  },
   changePassword: function (g, r) { return changePassword_(g, r.oldPassword, r.newPassword, r.token); },
   logout: function (g, r) { return logout_(r.token); },
   missions: function (g, r) { return missionsFor_(g.Game, ymOf_(r.year, r.month)); },
@@ -341,6 +347,7 @@ function setGuildFields_(email, fields) {
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][col.Email]).toLowerCase() === String(email).toLowerCase()) {
         Object.keys(fields).forEach(function (k) { sh.getRange(i + 1, col[k] + 1).setValue(fields[k]); });
+        clearRows_('Guilds');
         return true;
       }
     }
@@ -391,10 +398,12 @@ function upsertMission_(m) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][col.MissionID] === m.MissionID) {
         sh.getRange(i + 1, 1, 1, row.length).setValues([row]);
+        clearRows_('Missions');
         return m.MissionID;
       }
     }
     sh.appendRow(row);
+    clearRows_('Missions');
     return m.MissionID;
   });
 }
@@ -416,10 +425,12 @@ function setRankRule_(game, fromYear, ss, s) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][0] === game && Number(data[i][1]) === fromYear) {
         sh.getRange(i + 1, 3, 1, 2).setValues([[ss, s]]);
+        clearRows_('RankRules');
         return true;
       }
     }
     sh.appendRow([game, fromYear, ss, s]);
+    clearRows_('RankRules');
     return true;
   });
 }
@@ -620,7 +631,32 @@ function readReports_(year) {
   return sh ? rowsToObjects_(sh.getDataRange().getValues()).map(function (x) { x.YM = ymStr_(x.YM); return x; }) : [];
 }
 
-function readRows_(name) { return rowsToObjects_(getSheet_(name).getDataRange().getValues()); }
+/**
+ * อ่านแท็บเป็น object · แท็บที่ไม่ค่อยเปลี่ยน (Guilds/Missions/RankRules) เก็บ Cache 5 นาที
+ * เขียนผ่านโค้ด = ล้าง Cache ทันที · แก้ในชีตด้วยมือ = มีผลภายใน 5 นาที (หรือรัน clearAllCache)
+ */
+const CACHED_TABS = { Guilds: true, Missions: true, RankRules: true };
+const ROWS_CACHE_SEC = 300;
+
+function readRows_(name) {
+  if (!CACHED_TABS[name]) return rowsToObjects_(getSheet_(name).getDataRange().getValues());
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('rows_' + name);
+  if (hit) return JSON.parse(hit);
+  const rows = rowsToObjects_(getSheet_(name).getDataRange().getValues()).map(function (o) {
+    Object.keys(o).forEach(function (k) {
+      if (o[k] instanceof Date) o[k] = (k === 'StartYM' || k === 'EndYM') ? ymStr_(o[k]) : o[k].toISOString();
+    });
+    return o;
+  });
+  try { cache.put('rows_' + name, JSON.stringify(rows), ROWS_CACHE_SEC); } catch (e) { /* ใหญ่เกิน 100KB = ไม่ cache */ }
+  return rows;
+}
+
+function clearRows_(name) { CacheService.getScriptCache().remove('rows_' + name); }
+
+/** รันเองจาก editor หลังแก้ชีตด้วยมือ ถ้าอยากให้มีผลทันที */
+function clearAllCache() { Object.keys(CACHED_TABS).forEach(clearRows_); }
 
 function rowsToObjects_(data) {
   if (data.length < 2) return [];
@@ -636,6 +672,7 @@ function appendRow_(name, obj) {
   const sh = getSheet_(name);
   const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   sh.appendRow(head.map(function (h) { return obj[h] === undefined ? '' : obj[h]; }));
+  if (CACHED_TABS[name]) clearRows_(name);
 }
 
 function indexMap_(head) {
