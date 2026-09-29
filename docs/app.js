@@ -92,6 +92,14 @@
     return res.data;
   }
 
+  /** ปลุกเซิร์ฟเวอร์ล่วงหน้า (GET เบา ๆ ไม่อ่านชีต) ระหว่างกิลด์กรอกฟอร์ม · ไม่เกิน 1 ครั้ง/นาที · พลาดก็ไม่เป็นไร */
+  let lastWarm = 0;
+  function warmUp() {
+    if (DEMO || Date.now() - lastWarm < 60000) return;
+    lastWarm = Date.now();
+    fetch(CFG.API_URL, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+  }
+
   // ---------- auth ----------
   async function onLogin(e) {
     e.preventDefault();
@@ -292,6 +300,7 @@
     if (p.ok.length > MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' ลิงก์', true);
     btn.disabled = true; state.busy = true;
     btn.textContent = p.ok.length > 1 ? `กำลังส่ง ${p.ok.length} ลิงก์…` : 'กำลังส่ง…';
+    const slow = setTimeout(() => { btn.textContent = 'กำลังบันทึก… อาจใช้เวลาสักครู่ อย่าเพิ่งปิดหน้านี้'; }, 3000);
     try {
       const r = await api('submit', { missionId: $('s-mission').value, links: p.ok, poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
       renderSendResult(r);
@@ -299,7 +308,7 @@
       $('s-link').value = (r.skipped || []).map((x) => x.link).join('\n');
       if (!(r.skipped || []).length) $('s-note').value = '';
     } catch (err) { toast(err.message, true); }
-    finally { btn.disabled = false; state.busy = false; updateLinkCount(); }
+    finally { clearTimeout(slow); btn.disabled = false; state.busy = false; updateLinkCount(); }
   }
 
   // ---------- หลายลิงก์ ----------
@@ -421,6 +430,7 @@
     $('f-send').addEventListener('submit', onSend);
     $('s-mission').addEventListener('change', onMissionChange);
     $('s-link').addEventListener('input', updateLinkCount);
+    ['s-link', 's-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
     $('b-out').onclick = () => logout(false);

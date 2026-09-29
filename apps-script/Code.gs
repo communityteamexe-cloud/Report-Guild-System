@@ -100,13 +100,27 @@ function seedRankRules_() {
 // ดูแลระบบ — รันเองจาก editor (ชื่อไม่มี _ ท้าย จะได้เห็นใน Dropdown)
 // ===================================================================
 
-/** ติดตั้ง Trigger สำรองข้อมูลทุกวันจันทร์ 02:00 (รันซ้ำได้ ไม่สร้างซ้ำ) */
+/** ติดตั้ง Trigger: สำรองข้อมูลทุกวันจันทร์ 02:00 + ปลุกระบบทุก 10 นาที (รันซ้ำได้ ไม่สร้างซ้ำ) */
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'backupDatabase') ScriptApp.deleteTrigger(t);
+    const h = t.getHandlerFunction();
+    if (h === 'backupDatabase' || h === 'keepWarm') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('backupDatabase').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(2).create();
-  Logger.log('✅ ติดตั้ง Trigger สำรองข้อมูล ทุกวันจันทร์ 02:00 แล้ว');
+  ScriptApp.newTrigger('keepWarm').timeBased().everyMinutes(10).create();
+  Logger.log('✅ ติดตั้ง Trigger แล้ว: สำรองข้อมูลทุกวันจันทร์ 02:00 · ปลุกระบบทุก 10 นาที (07:00–23:59)');
+}
+
+/**
+ * ปลุกระบบ — กันอาการ "ตื่นช้า" ตอนกิลด์กดส่ง/เปิดหน้าคะแนนครั้งแรกหลังเงียบไปนาน
+ * ทำงานเฉพาะ 07:00–23:59 (เวลาไทย) · เปิดไฟล์ชีต + เติม Cache ของ Mission/กิลด์ ให้พร้อม
+ */
+function keepWarm() {
+  const hour = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'H'));
+  if (hour < 7) return;
+  ss_();
+  readRows_('Missions');
+  readRows_('Guilds');
 }
 
 /** สำรองชีตฐานข้อมูล → โฟลเดอร์ Backup (เก็บทุกไฟล์ ไม่ลบของเก่า) */
@@ -607,6 +621,7 @@ function reviewMany_(r) {
         const c0 = col.Status, c1 = col.ReviewedBy;
         sh.getRange(2, c0 + 1, data.length - 1, c1 - c0 + 1)
           .setValues(data.slice(1).map(function (row) { return row.slice(c0, c1 + 1); }));
+        delete MEMO_.reports[reportSheetName_(Number(y))];
       }
     });
     Object.keys(emails).forEach(bumpVersion_);
@@ -711,14 +726,22 @@ function leaderboard_(game, year, month) {
 // Sheet helpers
 // ===================================================================
 
+// ── ความจำภายใน 1 คำขอ (29 ก.ย. 69) ──
+// Apps Script เริ่มตัวแปร global ใหม่ทุกคำขอ → จำไว้ได้แค่ในคำขอนั้น ไม่มีข้อมูลเก่าค้างข้ามคำขอ
+// เดิม 1 คำขอเปิดไฟล์ชีตซ้ำ 2–3 ครั้ง และ bootstrap อ่านแท็บ Report ทั้งปี 2 รอบ (dashboard_ + cuteGuild_)
+const MEMO_ = { ss: null, sheets: {}, heads: {}, reports: {} };
+
 function ss_() {
+  if (MEMO_.ss) return MEMO_.ss;
   const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!id) throw new Error('ยังไม่ได้รัน setup()');
-  return SpreadsheetApp.openById(id);
+  MEMO_.ss = SpreadsheetApp.openById(id);
+  return MEMO_.ss;
 }
 
 /** เปิดแท็บ ถ้าไม่มีสร้างพร้อมหัวตาราง */
 function getSheet_(name) {
+  if (MEMO_.sheets[name]) return MEMO_.sheets[name];
   const ss = ss_();
   let sh = ss.getSheetByName(name);
   if (!sh) {
@@ -726,25 +749,38 @@ function getSheet_(name) {
     const head = HEAD[name.indexOf('Reports_') === 0 ? 'Reports' : name];
     sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
     sh.setFrozenRows(1);
+    MEMO_.heads[name] = head.slice();
   }
-  else if (name.indexOf('Reports_') === 0) ensureHead_(sh, HEAD.Reports);
+  else if (name.indexOf('Reports_') === 0) ensureHead_(sh, HEAD.Reports, name);
+  MEMO_.sheets[name] = sh;
   return sh;
 }
 
-/** เพิ่มคอลัมน์ที่ขาดต่อท้าย (แท็บเก่าก่อนมีคอลัมน์ใหม่ เช่น BatchID) */
-function ensureHead_(sh, head) {
+/** เพิ่มคอลัมน์ที่ขาดต่อท้าย (แท็บเก่าก่อนมีคอลัมน์ใหม่ เช่น BatchID) · จำหัวตารางไว้ให้ appendRows_ ใช้ต่อ */
+function ensureHead_(sh, head, name) {
   const cur = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
   const miss = head.filter(function (h) { return cur.indexOf(h) < 0; });
   if (miss.length) sh.getRange(1, cur.length + 1, 1, miss.length).setValues([miss]).setFontWeight('bold');
+  if (name) MEMO_.heads[name] = cur.concat(miss);
+}
+
+/** หัวตารางของแท็บ (จำไว้ในคำขอ) */
+function headOf_(name, sh) {
+  if (!MEMO_.heads[name]) MEMO_.heads[name] = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  return MEMO_.heads[name];
 }
 
 function reportSheetName_(year) { return 'Reports_' + year; }
 function getReportSheet_(year) { return getSheet_(reportSheetName_(year)); }
 
-/** อ่าน Report ของปีนั้น (ไม่มีแท็บ = ว่าง) */
+/** อ่าน Report ของปีนั้น (ไม่มีแท็บ = ว่าง) · จำไว้ในคำขอ — เขียนแท็บนั้นเมื่อไหร่ล้างทันที */
 function readReports_(year) {
-  const sh = ss_().getSheetByName(reportSheetName_(year));
-  return sh ? rowsToObjects_(sh.getDataRange().getValues()).map(function (x) { x.YM = ymStr_(x.YM); return x; }) : [];
+  const name = reportSheetName_(year);
+  if (MEMO_.reports[name]) return MEMO_.reports[name];
+  const sh = MEMO_.sheets[name] || ss_().getSheetByName(name);
+  const rows = sh ? rowsToObjects_(sh.getDataRange().getValues()).map(function (x) { x.YM = ymStr_(x.YM); return x; }) : [];
+  MEMO_.reports[name] = rows;
+  return rows;
 }
 
 /**
@@ -786,18 +822,20 @@ function rowsToObjects_(data) {
 
 function appendRow_(name, obj) {
   const sh = getSheet_(name);
-  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const head = headOf_(name, sh);
   sh.appendRow(head.map(function (h) { return obj[h] === undefined ? '' : obj[h]; }));
   if (CACHED_TABS[name]) clearRows_(name);
+  delete MEMO_.reports[name];
 }
 
 /** เพิ่มหลายแถวทีเดียว (เร็วกว่า appendRow ทีละแถว) */
 function appendRows_(name, objs) {
   const sh = getSheet_(name);
-  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const head = headOf_(name, sh);
   const rows = objs.map(function (o) { return head.map(function (h) { return o[h] === undefined ? '' : o[h]; }); });
   sh.getRange(sh.getLastRow() + 1, 1, rows.length, head.length).setValues(rows);
   if (CACHED_TABS[name]) clearRows_(name);
+  delete MEMO_.reports[name];
 }
 
 function indexMap_(head) {
