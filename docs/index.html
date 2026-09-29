@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#b91c1c">
+<title>Exclusive Guild Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="toast"></div>
+
+<!-- Login -->
+<section id="v-login" class="view center">
+  <form class="card narrow" id="f-login">
+    <div class="logo">⚔️</div>
+    <h2>Exclusive Guild Extreme</h2>
+    <p class="muted">เข้าสู่ระบบด้วยบัญชีกิลด์ที่ทีมงานส่งให้</p>
+    <label for="l-email">อีเมล</label>
+    <input id="l-email" type="email" autocomplete="username" required placeholder="ชื่อกิลด์.guildid.เกม@guild.exe">
+    <label for="l-pass">รหัสผ่าน</label>
+    <input id="l-pass" type="password" autocomplete="current-password" required>
+    <label class="check"><input id="l-remember" type="checkbox" checked> จดจำฉันไว้ 30 วัน</label>
+    <p class="note muted" style="margin-top:2px">ถ้าเป็นเครื่องที่ใช้ร่วมกับคนอื่น ไม่ต้องติ๊ก</p>
+    <button class="btn" type="submit">เข้าสู่ระบบ</button>
+    <p class="note muted">ลืมรหัสผ่าน? ติดต่อทีมงานผ่าน Discord เพื่อรีเซ็ต</p>
+  </form>
+</section>
+
+<!-- Change password -->
+<section id="v-pass" class="view center">
+  <form class="card narrow" id="f-pass">
+    <div class="logo">🔑</div>
+    <h2>ตั้งรหัสผ่านใหม่</h2>
+    <p class="muted" id="pass-hint">เพื่อความปลอดภัย กรุณาเปลี่ยนรหัสผ่านก่อนใช้งาน</p>
+    <label for="p-old">รหัสผ่านเดิม</label>
+    <input id="p-old" type="password" autocomplete="current-password" required>
+    <label for="p-new">รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</label>
+    <input id="p-new" type="password" autocomplete="new-password" minlength="8" required>
+    <label for="p-new2">ยืนยันรหัสผ่านใหม่</label>
+    <input id="p-new2" type="password" autocomplete="new-password" minlength="8" required>
+    <button class="btn" type="submit">บันทึกรหัสผ่าน</button>
+    <button class="btn ghost" type="button" id="p-cancel" hidden>ยกเลิก</button>
+  </form>
+</section>
+
+<!-- App -->
+<section id="v-app" class="view">
+  <header class="bar">
+    <div class="brand">
+      <b id="g-name">—</b>
+      <span class="muted" id="g-game"></span>
+    </div>
+    <nav class="tabs">
+      <button class="tab on" data-p="dash">คะแนน</button>
+      <button class="tab" data-p="send">ส่ง Report</button>
+      <button class="tab" data-p="hist">ประวัติ</button>
+    </nav>
+    <div class="menu">
+      <button class="icon" id="b-theme" title="สลับโหมดมืด" aria-label="สลับโหมดมืด">🌙</button>
+      <button class="icon" id="b-pass" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน">🔑</button>
+      <button class="icon" id="b-out" title="ออกจากระบบ" aria-label="ออกจากระบบ">⎋</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Dashboard -->
+    <div class="page on" id="p-dash">
+      <div class="head">
+        <h2>คะแนนของกิลด์ <span id="d-rank"></span></h2>
+        <div class="row">
+          <select id="d-month" aria-label="เดือน"></select>
+          <select id="d-year" aria-label="ปี"></select>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="card kpi"><div class="muted">คะแนนเดือนนี้</div><div class="n" id="k-month">–</div></div>
+        <div class="card kpi"><div class="muted" id="k-year-l">คะแนนสะสมทั้งปี</div><div class="n" id="k-year">–</div></div>
+        <div class="card kpi"><div class="muted">รอตรวจ</div><div class="n warn" id="k-pend">–</div></div>
+        <div class="card kpi"><div class="muted">ถูกปฏิเสธ</div><div class="n bad" id="k-rej">–</div></div>
+        <div class="card span4">
+          <h3 id="r-title">–</h3>
+          <div class="prog"><i id="r-bar"></i></div>
+          <div class="marks muted"><span>0</span><span id="r-s">S</span><span id="r-ss">SS</span></div>
+          <div id="cute"></div>
+          <div class="note muted" id="upd"></div>
+        </div>
+        <div class="card span2">
+          <h3 id="c-title">คะแนนรายเดือน</h3>
+          <div class="bars" id="bars"></div>
+        </div>
+        <div class="card span2">
+          <h3>คะแนนแยก Mission</h3>
+          <div id="per"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Send -->
+    <div class="page" id="p-send">
+      <div class="two">
+        <form class="card" id="f-send">
+          <h2>ส่ง Report</h2>
+          <p class="muted" id="s-sub"></p>
+          <label for="s-mission">Mission</label>
+          <select id="s-mission" required></select>
+          <div id="s-poster-wrap" hidden>
+            <label for="s-poster">ชื่อ Facebook ผู้โพสต์</label>
+            <input id="s-poster" maxlength="100" placeholder="เช่น Somchai Gamer">
+          </div>
+          <label for="s-link">ลิงก์หลักฐาน</label>
+          <input id="s-link" type="url" required placeholder="https://facebook.com/groups/...">
+          <label for="s-note">รายละเอียดเพิ่มเติม (ไม่บังคับ)</label>
+          <textarea id="s-note" rows="3" maxlength="500"></textarea>
+          <button class="btn" type="submit" id="s-btn">ส่ง Report</button>
+          <p class="note muted">ส่งแล้วสถานะเป็น "รอตรวจ" คะแนนจะนับเมื่อทีมงานอนุมัติ</p>
+        </form>
+        <div class="card">
+          <h3>รายละเอียด Mission</h3>
+          <div id="s-detail" class="muted">เลือก Mission เพื่อดูรายละเอียด</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="page" id="p-hist">
+      <div class="card">
+        <div class="head">
+          <h2>ประวัติการส่ง Report</h2>
+          <div class="row">
+            <select id="h-month" aria-label="เดือน"></select>
+            <select id="h-year" aria-label="ปี"></select>
+          </div>
+        </div>
+        <div class="tscroll"><table>
+          <thead><tr><th>วันที่</th><th>Mission</th><th>หลักฐาน</th><th>สถานะ</th><th class="r">คะแนน</th></tr></thead>
+          <tbody id="h-body"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </main>
+</section>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
