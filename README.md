@@ -17,7 +17,7 @@ Report Guild System/
 2. วาง `Code.gs` ทับไฟล์ Code.gs
 3. ⚙️ Project Settings → ติ๊ก **Show "appsscript.json"** → วาง `appsscript.json` ทับ
 4. เลือกฟังก์ชัน `setup` → กด **Run** → Authorize
-   - ระบบสร้างโฟลเดอร์ `Report Guild System` + ชีต `Report Guild System — Database` ใต้ 07
+   - ระบบสร้างโฟลเดอร์ `06 - 🛡️ Report Guild System` + ชีต `Report Guild System — Database` ใต้ 07
    - ใส่ Mission 3 เกม + เกณฑ์ Rank ให้อัตโนมัติ
    - ดู **Execution log** → จด `ADMIN_KEY` ไว้ (ใช้กับ CTM 🐶 ในรอบ 2 · ห้ามเผยแพร่)
 5. **Deploy → New deployment → Web app**

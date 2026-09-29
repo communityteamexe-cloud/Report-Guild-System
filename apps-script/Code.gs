@@ -10,6 +10,7 @@
 
 // ===== ค่าคงที่ =====
 const PROJECT_PARENT_FOLDER = '1W-q4Cl43lAp4ixE8h9sUxhzTGeOBRkB2'; // Drive "01 - Community Team Management 🐶" (เดิมชื่อ 07)
+const RGS_FOLDER_NAME = '06 - 🛡️ Report Guild System'; // โฟลเดอร์เก็บชีต + โปรเจกต์ API (ชื่อตามแบบโฟลเดอร์ 01-05)
 const EMAIL_DOMAIN = 'guild.exe';
 const SESSION_HOURS = 6;
 const REMEMBER_DAYS = 30;
@@ -42,8 +43,8 @@ function setup() {
   let ssId = props.getProperty('SHEET_ID');
   if (!ssId) {
     const parent = DriveApp.getFolderById(PROJECT_PARENT_FOLDER);
-    const it = parent.getFoldersByName('Report Guild System');
-    const folder = it.hasNext() ? it.next() : parent.createFolder('Report Guild System');
+    const it = parent.getFoldersByName(RGS_FOLDER_NAME);
+    const folder = it.hasNext() ? it.next() : parent.createFolder(RGS_FOLDER_NAME);
     const ss = SpreadsheetApp.create('Report Guild System — Database');
     DriveApp.getFileById(ss.getId()).moveTo(folder);
     ssId = ss.getId();
