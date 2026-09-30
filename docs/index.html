@@ -109,24 +109,31 @@
     <div class="page on" id="p-dash">
       <div id="d-notice"></div>
       <div class="head">
-        <h2>คะแนนของกิลด์ <span id="d-rank"></span></h2>
+        <h2>คะแนนของกิลด์</h2>
         <div class="row">
           <select id="d-month" aria-label="เดือน"></select>
           <select id="d-year" aria-label="ปี"></select>
         </div>
       </div>
       <div class="grid">
-        <div class="card kpi"><div class="muted">คะแนนเดือนนี้</div><div class="n" id="k-month">–</div></div>
+        <!-- Hero: คะแนนเดือน + วงแหวนไปถึง Rank ถัดไป -->
+        <div class="card span4 hero">
+          <div class="hero-main">
+            <div class="hero-l" id="k-month-l">คะแนนเดือนนี้</div>
+            <div class="hero-n"><span id="k-month">–</span><span id="d-rank"></span></div>
+            <h3 id="r-title">–</h3>
+            <div id="cute"></div>
+            <div class="hero-upd" id="upd"></div>
+          </div>
+          <div class="ring" aria-hidden="true">
+            <svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="r-ring" cx="60" cy="60" r="52"/></svg>
+            <div class="ring-c"><b id="r-pct">0%</b><span id="r-next">ถึง S</span></div>
+          </div>
+        </div>
         <div class="card kpi"><div class="muted" id="k-year-l">คะแนนสะสมทั้งปี</div><div class="n" id="k-year">–</div></div>
         <div class="card kpi"><div class="muted">รอตรวจ</div><div class="n warn" id="k-pend">–</div></div>
         <div class="card kpi"><div class="muted">ถูกปฏิเสธ</div><div class="n bad" id="k-rej">–</div></div>
-        <div class="card span4">
-          <h3 id="r-title">–</h3>
-          <div class="prog"><i id="r-bar"></i></div>
-          <div class="marks muted"><span>0</span><span id="r-s">S</span><span id="r-ss">SS</span></div>
-          <div id="cute"></div>
-          <div class="note muted" id="upd"></div>
-        </div>
+        <div class="card kpi"><div class="muted">🔥 ส่งติดกันสูงสุด</div><div class="n" id="k-streak">–</div></div>
         <div class="card span2">
           <h3 id="c-title">คะแนนรายเดือน</h3>
           <div class="bars" id="bars"></div>
@@ -134,6 +141,15 @@
         <div class="card span2">
           <h3>คะแนนแยก Mission</h3>
           <div id="per"></div>
+        </div>
+        <div class="card span2">
+          <h3 id="hm-title">ปฏิทินความขยัน</h3>
+          <div class="heat" id="heat"></div>
+          <div class="heat-legend muted"><span>น้อย</span><i class="h0"></i><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i><span>มาก</span></div>
+        </div>
+        <div class="card span2">
+          <h3>🏅 เหรียญความสำเร็จ <span class="muted" id="bd-count"></span></h3>
+          <div class="badges" id="badges"></div>
         </div>
       </div>
     </div>

@@ -214,7 +214,7 @@
   function setDashLoading(on) {
     $('p-dash').classList.toggle('loading', on);
     if (on) {
-      ['k-month', 'k-year', 'k-pend', 'k-rej'].forEach((id) => { if ($(id).textContent === '–') $(id).textContent = '···'; });
+      ['k-month', 'k-year', 'k-pend', 'k-rej', 'k-streak'].forEach((id) => { if ($(id).textContent === '–') $(id).textContent = '···'; });
       if ($('r-title').textContent === '–') $('r-title').textContent = 'กำลังโหลดคะแนน…';
     }
   }
@@ -268,6 +268,101 @@
     toast(`มีผลตรวจใหม่: ✅ ${rv.approved} · ❌ ${rv.rejected}`);
   }
 
+  // ---------- เอฟเฟกต์ (ปิดเองถ้าเครื่องตั้ง "ลดการเคลื่อนไหว") ----------
+  const calm = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
+
+  /** ตัวเลขวิ่งจากค่าเดิม → ค่าใหม่ (ครั้งแรกเริ่มที่ 0) */
+  function countUp(el, to) {
+    to = Number(to) || 0;
+    const from = Number(el.dataset.v || 0);
+    el.dataset.v = to;
+    if (calm() || from === to) { el.textContent = fmtNum(to); return; }
+    const t0 = performance.now(), dur = 900;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = fmtNum(Math.round(from + (to - from) * e));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  /** ฉลองครั้งแรกที่ได้ S / SS ของเดือน (ครั้งเดียวต่อ Rank ต่อเดือน ต่อเครื่อง) */
+  function maybeCelebrate(rank, y, m) {
+    if (!rank || !state.guild) return;
+    const key = `rgs_cel_${state.guild.email}_${y}-${m}`, had = store.get(key) || '';
+    if (had === 'SS' || had === rank) return;
+    store.set(key, rank);
+    celebrate(rank);
+  }
+  function celebrate(rank) {
+    const o = document.createElement('div');
+    o.className = 'overlay celebrate';
+    o.innerHTML = `<canvas></canvas><div class="card cele"><div class="cele-rank ${rank}">${rank}</div><h2>🎉 ยินดีด้วย!</h2><p>กิลด์ของคุณได้ <b>Rank ${rank}</b> ประจำเดือนนี้แล้ว</p>` +
+      `<p class="muted">${rank === 'SS' ? 'สุดยอด! รักษาไว้ให้ได้ทุกเดือนนะ 👑' : 'อีกนิดเดียวถึง SS — สู้ ๆ! 🔥'}</p><button type="button" class="btn">เยี่ยมเลย!</button></div>`;
+    const close = () => o.remove();
+    o.querySelector('button').onclick = close;
+    o.onclick = (ev) => { if (ev.target === o) close(); };
+    document.body.appendChild(o);
+    if (!calm()) confetti(o.querySelector('canvas'));
+  }
+  /** พลุกระดาษโทนแดงไล่เฉด (ไม่ใช้ไลบรารี) */
+  function confetti(cv) {
+    const ctx = cv.getContext('2d'), W = cv.width = innerWidth, H = cv.height = innerHeight;
+    const cs = getComputedStyle(document.documentElement);
+    const cols = ['--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5'].map((v) => cs.getPropertyValue(v).trim() || '#e11').concat(['#ffd166', '#ffffff']);
+    const ps = Array.from({ length: 160 }, () => ({ x: W / 2 + (Math.random() - 0.5) * 120, y: H * 0.35, vx: (Math.random() - 0.5) * 14,
+      vy: -Math.random() * 14 - 4, r: Math.random() * 6 + 4, a: Math.random() * 6, va: (Math.random() - 0.5) * 0.3, c: cols[(Math.random() * cols.length) | 0] }));
+    const t0 = performance.now();
+    const tick = (t) => {
+      ctx.clearRect(0, 0, W, H);
+      ps.forEach((p) => {
+        p.vy += 0.35; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.a += p.va;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.fillStyle = p.c; ctx.fillRect(-p.r / 2, -p.r / 4, p.r, p.r / 2); ctx.restore();
+      });
+      if (t - t0 < 3500 && cv.isConnected) requestAnimationFrame(tick); else ctx.clearRect(0, 0, W, H);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** ปฏิทินความขยัน: 1 ช่อง = 1 วัน · สีเข้มตามจำนวน Report ที่ส่ง */
+  function renderHeat(d) {
+    const box = $('heat'), daily = d.daily || [];
+    $('hm-title').textContent = 'ปฏิทินความขยัน · ' + MONTHS[d.month - 1];
+    if (!daily.length) { box.innerHTML = '<div class="empty">อัปเดตหลังบ้านแล้วจะเห็นข้อมูลรายวัน</div>'; return; }
+    const first = new Date(d.year, d.month - 1, 1).getDay(), today = new Date();
+    const isNow = d.year === today.getFullYear() && d.month === today.getMonth() + 1;
+    const lvl = (n) => n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4;
+    box.innerHTML = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map((w) => `<b>${w}</b>`).join('') +
+      '<span></span>'.repeat(first) +
+      daily.map((n, i) => `<i class="h${lvl(n)}${isNow && i + 1 === today.getDate() ? ' today' : ''}${isNow && i + 1 > today.getDate() ? ' future' : ''}" title="${i + 1} ${MONTHS[d.month - 1]}: ${n} รายการ" style="--i:${i}">${i + 1}</i>`).join('');
+  }
+
+  /** เหรียญความสำเร็จ (ทั้งปี) — ได้แล้วสีแดงเรืองแสง · ยังไม่ได้สีเทา + บอกเงื่อนไข */
+  function renderBadges(d) {
+    const s = d.stats || {}, cute = d.cuteGuild;
+    const list = [
+      { i: '🥇', t: 'Report แรก', need: 'ส่ง Report ครั้งแรก', ok: (s.reports || 0) >= 1 },
+      { i: '🔥', t: 'ขยันติดกัน 7 วัน', need: `ส่งติดกัน 7 วัน (ตอนนี้ ${s.bestStreak || 0})`, ok: (s.bestStreak || 0) >= 7 },
+      { i: '💯', t: 'อนุมัติครบ 100', need: `อนุมัติ 100 รายการในปีนี้ (ตอนนี้ ${s.approved || 0})`, ok: (s.approved || 0) >= 100 },
+      { i: '💖', t: 'Cute Guild', need: cute ? `Feedback อนุมัติ ${cute.count}/${cute.need} ใน 30 วัน` : 'เฉพาะ TOSM / 9Yin', ok: !!(cute && cute.achieved), off: !cute },
+      { i: '👑', t: 'SS 3 เดือนติด', need: `ได้ SS ติดกัน 3 เดือน (ตอนนี้ ${s.ssStreak || 0})`, ok: (s.ssStreak || 0) >= 3 }
+    ].filter((b) => !b.off);
+    $('bd-count').textContent = `${list.filter((b) => b.ok).length}/${list.length}`;
+    $('badges').innerHTML = list.map((b) => `<div class="bd ${b.ok ? 'on' : ''}" title="${esc(b.need)}"><span>${b.i}</span><b>${esc(b.t)}</b><small>${b.ok ? 'ปลดล็อกแล้ว' : esc(b.need)}</small></div>`).join('');
+  }
+
+  /** เครื่องหมายถูกวาดตัวเอง ก่อนไปหน้าคะแนน */
+  function successCheck(text) {
+    return new Promise((ok) => {
+      const o = document.createElement('div');
+      o.className = 'overlay done';
+      o.innerHTML = `<div class="card done-card"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M14 27l8 8 16-17"/></svg><b></b></div>`;
+      o.querySelector('b').textContent = text;
+      document.body.appendChild(o);
+      setTimeout(() => { o.remove(); ok(); }, calm() ? 700 : 1400);
+    });
+  }
+
   /** วันที่เหลือก่อนปิดรอบเดือนนี้ (รวมวันนี้) */
   function daysLeftInMonth() {
     const n = new Date();
@@ -298,17 +393,27 @@
     slot.innerHTML = (isNow ? deadlineHtml() : '') + welcome;
     const gs = slot.querySelector('.go-send'); if (gs) gs.onclick = () => switchPage('send');
     const oh = slot.querySelector('.open-help2'); if (oh) oh.onclick = () => { $('help').hidden = false; };
-    $('d-rank').innerHTML = d.rank ? `<span class="pill ${d.rank}">Rank ${d.rank}</span>` : '';
-    $('k-month').textContent = fmtNum(sc);
+    $('d-rank').innerHTML = d.rank ? `<span class="pill rank ${d.rank}">Rank ${d.rank}</span>` : '';
+    $('k-month-l').textContent = 'คะแนนเดือน ' + MONTHS[d.month - 1] + ' ' + (d.year + 543);
+    countUp($('k-month'), sc);
     $('k-year-l').textContent = 'คะแนนสะสมปี ' + (d.year + 543);
-    $('k-year').textContent = fmtNum(d.yearScore);
-    $('k-pend').textContent = fmtNum(d.pending);
-    $('k-rej').textContent = fmtNum(d.rejected);
+    countUp($('k-year'), d.yearScore);
+    countUp($('k-pend'), d.pending);
+    countUp($('k-rej'), d.rejected);
+    const st = d.stats || {};
+    $('k-streak').textContent = (st.bestStreak || 0) + ' วัน';
 
-    const max = Math.max(rule.ss, sc) || 1;
-    $('r-bar').style.width = Math.min(100, (sc / max) * 100) + '%';
-    $('r-s').textContent = 'S · ' + rule.s;
-    $('r-ss').textContent = 'SS · ' + rule.ss;
+    // วงแหวน: ยังไม่ถึง S → วัดไปที่ S · ถึง S แล้ว → วัดไปที่ SS · ได้ SS แล้ว = เต็มวง
+    const target = sc >= rule.s ? rule.ss : rule.s;
+    const pct = sc >= rule.ss ? 100 : Math.max(0, Math.min(100, Math.round((sc / target) * 100)));
+    const C = 2 * Math.PI * 52;
+    $('r-ring').style.strokeDasharray = C;
+    $('r-ring').style.strokeDashoffset = C;
+    requestAnimationFrame(() => requestAnimationFrame(() => { $('r-ring').style.strokeDashoffset = C * (1 - pct / 100); }));
+    $('r-pct').textContent = pct + '%';
+    $('r-next').textContent = sc >= rule.ss ? 'SS แล้ว!' : (sc >= rule.s ? 'ถึง SS · ' + rule.ss : 'ถึง S · ' + rule.s);
+    $('p-dash').querySelector('.hero').dataset.rank = d.rank || '';
+    if (isNow) maybeCelebrate(d.rank, d.year, d.month);
     $('r-title').textContent = sc >= rule.ss ? 'ได้ Rank SS แล้ว 🎉'
       : sc >= rule.s ? `อีก ${rule.ss - sc} คะแนน จะได้ Rank SS 🎯`
       : `อีก ${rule.s - sc} คะแนน จะได้ Rank S 🎯`;
@@ -320,7 +425,10 @@
     $('c-title').textContent = 'คะแนนรายเดือน ปี ' + (d.year + 543);
     const top = Math.max.apply(null, d.monthly.concat([1]));
     $('bars').innerHTML = d.monthly.map((v, i) =>
-      `<div class="${i + 1 === d.month ? 'cur' : ''}" style="height:${(v / top) * 100}%" title="${MONTHS[i]}: ${v}">${v ? `<em>${v}</em>` : ''}<span>${MONTHS[i]}</span></div>`).join('');
+      `<div class="${i + 1 === d.month ? 'cur' : ''}${v >= rule.ss ? ' ss' : ''}" style="--h:${(v / top) * 100}%;--i:${i}" title="${MONTHS[i]}: ${v}${v >= rule.ss ? ' · SS' : ''}">${v ? `<em>${v >= rule.ss ? '⭐ ' : ''}${v}</em>` : ''}<span>${MONTHS[i]}</span></div>`).join('');
+
+    renderHeat(d);
+    renderBadges(d);
 
     $('per').innerHTML = d.perMission.length ? d.perMission.map((m) =>
       `<div class="mission"><span>${esc(m.name)} <span class="muted">· ${m.used}${m.maxPerMonth && m.maxScope !== 'poster' ? '/' + m.maxPerMonth : ''} ครั้ง</span></span><b class="${m.score ? '' : 'muted'}">${fmtNum(m.score)}</b></div>`).join('')
@@ -397,7 +505,7 @@
       if (!leftLinks.length && !leftImgs.length && (r.accepted || []).length) {
         // ส่งครบทุกรายการ → ล้างฟอร์ม แล้วกลับหน้าคะแนน (โหลดใหม่ให้เห็นรายการรอตรวจ)
         resetSendForm();
-        toast(`✅ ส่ง Report ${r.accepted.length} รายการเรียบร้อย — รอทีมงานตรวจ`);
+        await successCheck(`ส่ง ${r.accepted.length} รายการเรียบร้อย — รอทีมงานตรวจ`);
         switchPage('dash');
         return;
       }

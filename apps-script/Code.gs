@@ -751,10 +751,48 @@ function dashboard_(g, year, month) {
     rejected: thisMonth.filter(function (x) { return x.Status === STATUS.REJECTED; }).length,
     perMission: perMission, cuteGuild: cuteGuild_(g),
     totalThisYear: mine.length,
+    daily: dailyCounts_(thisMonth, year, month),
+    stats: guildStats_(mine, monthly, rule),
     updatedAt: new Date().toISOString()
   };
   cache.put(key, JSON.stringify(out), DASH_CACHE_SEC);
   return out;
+}
+
+/** จำนวน Report ที่ส่งในแต่ละวันของเดือน (ไม่นับที่ถูกปฏิเสธ) → ปฏิทินความขยัน */
+function dailyCounts_(rows, year, month) {
+  const days = new Date(year, month, 0).getDate(), out = [];
+  for (let i = 0; i < days; i++) out.push(0);
+  rows.forEach(function (x) {
+    if (x.Status === STATUS.REJECTED) return;
+    const d = new Date(x.CreatedAt);
+    if (!isNaN(d) && d.getFullYear() === year && d.getMonth() + 1 === month) out[d.getDate() - 1]++;
+  });
+  return out;
+}
+
+/**
+ * ตัวเลขสำหรับเหรียญความสำเร็จ (ทั้งปี)
+ * bestStreak = ส่ง Report ติดกันกี่วัน (สูงสุด) · approved = อนุมัติทั้งปี · ssStreak = SS ติดกันกี่เดือน (สูงสุด)
+ */
+function guildStats_(mine, monthly, rule) {
+  const days = {};
+  mine.forEach(function (x) {
+    if (x.Status === STATUS.REJECTED) return;
+    const d = new Date(x.CreatedAt);
+    if (!isNaN(d)) days[Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd')] = true;
+  });
+  let best = 0, run = 0, prev = null;
+  Object.keys(days).sort().forEach(function (k) {
+    const t = new Date(k + 'T00:00:00+07:00').getTime();
+    run = prev !== null && t - prev <= 86400000 * 1.5 ? run + 1 : 1;
+    best = Math.max(best, run); prev = t;
+  });
+  let ss = 0, cur = 0;
+  monthly.forEach(function (v) { cur = v >= rule.ss ? cur + 1 : 0; ss = Math.max(ss, cur); });
+  return { reports: mine.filter(function (x) { return x.Status !== STATUS.REJECTED; }).length,
+    approved: mine.filter(function (x) { return x.Status === STATUS.APPROVED; }).length,
+    bestStreak: best, ssStreak: ss };
 }
 
 /**
