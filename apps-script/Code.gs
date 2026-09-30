@@ -202,7 +202,8 @@ const GUILD_ACTIONS = {
   // เปิดเว็บครั้งเดียวได้ครบ: กิลด์ + Mission เดือนนี้ + คะแนน (ลดจาก 3 คำขอเหลือ 1)
   bootstrap: function (g, r) {
     return { guild: publicGuild_(g), missions: missionsFor_(g.Game, ymOf_(r.year, r.month)),
-      dashboard: dashboard_(g, Number(r.year), Number(r.month)) };
+      dashboard: dashboard_(g, Number(r.year), Number(r.month)),
+      reviewed: reviewedSince_(g, Number(r.since) || 0) };
   },
   changePassword: function (g, r) { return changePassword_(g, r.oldPassword, r.newPassword, r.token); },
   logout: function (g, r) { return logout_(r.token); },
@@ -593,7 +594,14 @@ function submitReport_(g, r) {
   // 2) ล็อก → ตรวจซ้ำกับข้อมูลล่าสุด (กันส่งชนกัน) → บันทึก
   return withLock_(function () {
     const st = usedKeys_();
-    const batchId = items.length > 1 ? 'B' + year + '-' + Utilities.getUuid().slice(0, 8) : '';
+    // ส่งต่อชุดเดิมได้ (หน้าเว็บแบ่งอัปโหลดรูปเป็นรอบ ๆ เพื่อโชว์ความคืบหน้า) — ต้องเป็นชุดของกิลด์นี้ ปีนี้ Mission เดียวกัน
+    let batchId = '';
+    const want = String(r.batchId || '');
+    if (/^B\d{4}-[0-9a-f]{8}$/.test(want) && want.slice(1, 5) === String(year)) {
+      const owners = readReports_(year).filter(function (x) { return x.BatchID === want; });
+      if (owners.every(function (x) { return x.Email === g.Email && x.MissionID === m.id; })) batchId = want;
+    }
+    if (!batchId && (items.length > 1 || r.more)) batchId = 'B' + year + '-' + Utilities.getUuid().slice(0, 8);
     const accepted = [], rows = [];
     items.forEach(function (it) {
       const why = it.skip || precheck(it, st);
@@ -742,10 +750,29 @@ function dashboard_(g, year, month) {
     pending: thisMonth.filter(function (x) { return x.Status === STATUS.PENDING; }).length,
     rejected: thisMonth.filter(function (x) { return x.Status === STATUS.REJECTED; }).length,
     perMission: perMission, cuteGuild: cuteGuild_(g),
+    totalThisYear: mine.length,
     updatedAt: new Date().toISOString()
   };
   cache.put(key, JSON.stringify(out), DASH_CACHE_SEC);
   return out;
+}
+
+/**
+ * ผลตรวจที่เกิดขึ้นหลังเวลา since (ms) — แจ้งกิลด์ตอนเปิดเว็บ "อนุมัติ N · ปฏิเสธ N ตั้งแต่ครั้งก่อน"
+ * since = 0 (เปิดครั้งแรกในเครื่องนี้) → ไม่แจ้ง
+ */
+function reviewedSince_(g, since) {
+  if (!since) return { approved: 0, rejected: 0, points: 0, rejectedList: [] };
+  const y = new Date().getFullYear();
+  const rows = readReports_(y).concat(new Date(since).getFullYear() < y ? readReports_(y - 1) : []).filter(function (x) {
+    return x.Email === g.Email && x.ReviewedAt && new Date(x.ReviewedAt).getTime() > since &&
+      (x.Status === STATUS.APPROVED || x.Status === STATUS.REJECTED);
+  });
+  const ok = rows.filter(function (x) { return x.Status === STATUS.APPROVED; });
+  const no = rows.filter(function (x) { return x.Status === STATUS.REJECTED; });
+  return { approved: ok.length, rejected: no.length,
+    points: ok.reduce(function (s, x) { return s + (Number(x.ApprovedPoints) || 0); }, 0),
+    rejectedList: no.slice(0, 5).map(function (x) { return { mission: x.MissionName, reason: x.Reason }; }) };
 }
 
 /** Cute Guild (TOSM/9Yin): Feedback ที่อนุมัติแล้ว ≥ 3 ครั้งใน 30 วันล่าสุด */

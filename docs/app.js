@@ -9,7 +9,6 @@
   const CFG = window.RGS_CONFIG || {};
   const DEMO = !/^https:\/\/script\.google\.com\//.test(CFG.API_URL || '');
   const FIRST_YEAR = 2026;             // ปีแรกของโครงการ (ค.ศ.)
-  const MIN_LAST_YEAR = 2032;          // ให้เลือกได้อย่างน้อยถึง พ.ศ. 2575
   const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
   const STATUS_TH = { pending: 'รอตรวจ', approved: 'อนุมัติ', rejected: 'ปฏิเสธ' };
 
@@ -162,17 +161,23 @@
   }
 
   // ---------- app ----------
+  /** ปี: ตั้งแต่ปีแรกของโครงการ ถึงปีปัจจุบัน (ปีใหม่เพิ่มเอง ไม่มีปีตายตัว) · เดือนในอนาคตเลือกไม่ได้ */
   function fillPeriodSelects() {
     const now = new Date();
-    const last = Math.max(now.getFullYear(), MIN_LAST_YEAR);
     ['d', 'h'].forEach((p) => {
       $(p + '-month').innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
       let yrs = '';
-      for (let y = last; y >= FIRST_YEAR; y--) yrs += `<option value="${y}">${y + 543}</option>`;
+      for (let y = now.getFullYear(); y >= FIRST_YEAR; y--) yrs += `<option value="${y}">${y + 543}</option>`;
       $(p + '-year').innerHTML = yrs;
       $(p + '-month').value = now.getMonth() + 1;
       $(p + '-year').value = now.getFullYear();
+      lockFutureMonths(p);
     });
+  }
+  function lockFutureMonths(p) {
+    const now = new Date(), y = Number($(p + '-year').value), sel = $(p + '-month');
+    Array.prototype.forEach.call(sel.options, (o) => { o.disabled = y === now.getFullYear() && Number(o.value) > now.getMonth() + 1; });
+    if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = now.getMonth() + 1;
   }
 
   function showGuild(g) {
@@ -187,14 +192,19 @@
     switchPage('dash', true);
     setDashLoading(true);
     const now = new Date();
+    const seenKey = 'rgs_seen_' + ((state.guild && state.guild.email) || store.get('rgs_email') || '');
+    const since = Number(store.get(seenKey) || 0);
     try {
       const b = DEMO
         ? { guild: state.guild, missions: await api('missions'), dashboard: await api('dashboard', { year: now.getFullYear(), month: now.getMonth() + 1 }) }
-        : await api('bootstrap', { year: now.getFullYear(), month: now.getMonth() + 1 });
+        : await api('bootstrap', { year: now.getFullYear(), month: now.getMonth() + 1, since: since });
       state.guild = b.guild;
       showGuild(b.guild);
-      renderMissions(b.missions);
+      state.missions = b.missions;
       renderDash(b.dashboard);
+      renderMissions(b.missions);
+      showReviewed(b.reviewed);
+      store.set('rgs_seen_' + b.guild.email, String(Date.now()));
       startRefresh();
     } catch (err) { toast(err.message, true); }
     finally { setDashLoading(false); }
@@ -240,8 +250,54 @@
     finally { if (!silent) setDashLoading(false); }
   }
 
+  /** แจ้งผลตรวจที่เกิดขึ้นตั้งแต่เปิดเว็บครั้งก่อน (แถบบนหน้าคะแนน + Toast) */
+  function showReviewed(rv) {
+    const box = $('d-review');
+    if (!rv || (!rv.approved && !rv.rejected)) { if (box) box.remove(); return; }
+    const el = box || Object.assign(document.createElement('div'), { id: 'd-review' });
+    el.className = 'notice ' + (rv.rejected ? 'warn' : 'good');
+    el.innerHTML = `<div><b>ผลตรวจตั้งแต่ครั้งก่อน:</b> ` +
+      (rv.approved ? `✅ อนุมัติ ${rv.approved} รายการ (+${fmtNum(rv.points)} คะแนน)` : '') + (rv.approved && rv.rejected ? ' · ' : '') +
+      (rv.rejected ? `❌ ปฏิเสธ ${rv.rejected} รายการ` : '') + `</div>` +
+      (rv.rejectedList && rv.rejectedList.length ? `<ul>${rv.rejectedList.map((x) => `<li>${esc(x.mission)} — <span class="muted">${esc(x.reason || '')}</span></li>`).join('')}</ul>` : '') +
+      `<div class="notice-act">${rv.rejected ? '<a href="#" data-go="hist">ดูและส่งใหม่ในประวัติ →</a>' : ''}<button type="button" class="icon x" aria-label="ปิด">×</button></div>`;
+    el.querySelector('.x').onclick = () => el.remove();
+    const go = el.querySelector('[data-go]');
+    if (go) go.onclick = (ev) => { ev.preventDefault(); switchPage('hist'); };
+    if (!box) $('d-notice').prepend(el);
+    toast(`มีผลตรวจใหม่: ✅ ${rv.approved} · ❌ ${rv.rejected}`);
+  }
+
+  /** วันที่เหลือก่อนปิดรอบเดือนนี้ (รวมวันนี้) */
+  function daysLeftInMonth() {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate() - n.getDate() + 1;
+  }
+  function deadlineHtml() {
+    const d = daysLeftInMonth(), n = new Date();
+    if (d > 7) return '';
+    const last = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+    return `<div class="notice ${d <= 2 ? 'warn' : 'info'}"><div>⏳ ${d === 1 ? '<b>วันสุดท้าย!</b> ปิดรอบ' : `เหลือ <b>${d} วัน</b> ก่อนปิดรอบ`} ${MONTHS[n.getMonth()]} ${n.getFullYear() + 543} — ส่งได้ถึง ${last} ${MONTHS[n.getMonth()]} 23:59 น.</div></div>`;
+  }
+
   function renderDash(d) {
-    const rule = d.rule, sc = d.monthScore;
+    const rule = d.rule, sc = d.monthScore, now = new Date();
+    const isNow = d.year === now.getFullYear() && d.month === now.getMonth() + 1;
+    // จำนวนที่ใช้ไปของเดือนนี้ → ให้ Dropdown Mission บอกสิทธิ์ที่เหลือ
+    if (isNow) {
+      state.usage = {};
+      d.perMission.forEach((m) => { state.usage[m.id] = m.used; });
+      if (state.missions) renderMissions(state.missions);
+    }
+    // แถบนับถอยหลัง + การ์ดต้อนรับกิลด์ใหม่
+    const welcome = d.year === now.getFullYear() && !d.totalThisYear
+      ? `<div class="notice welcome"><div><b>👋 ยินดีต้อนรับ ${esc((state.guild && state.guild.nameTH) || '')}</b><br>ยังไม่มี Report ในปีนี้ — ส่งหลักฐาน Mission แรกเพื่อเริ่มเก็บคะแนน</div>` +
+        `<div class="notice-act"><button type="button" class="btn go-send">📤 ส่ง Report แรก</button><button type="button" class="btn ghost open-help2">📖 วิธีใช้งาน</button></div></div>` : '';
+    let slot = $('d-slot');
+    if (!slot) { slot = document.createElement('div'); slot.id = 'd-slot'; $('d-notice').appendChild(slot); }
+    slot.innerHTML = (isNow ? deadlineHtml() : '') + welcome;
+    const gs = slot.querySelector('.go-send'); if (gs) gs.onclick = () => switchPage('send');
+    const oh = slot.querySelector('.open-help2'); if (oh) oh.onclick = () => { $('help').hidden = false; };
     $('d-rank').innerHTML = d.rank ? `<span class="pill ${d.rank}">Rank ${d.rank}</span>` : '';
     $('k-month').textContent = fmtNum(sc);
     $('k-year-l').textContent = 'คะแนนสะสมปี ' + (d.year + 543);
@@ -283,11 +339,23 @@
       const now = new Date();
       state.missions = list;
       $('s-sub').textContent = state.guild.nameTH + ' · ' + state.guild.gameName + ' · เดือน ' + MONTHS[now.getMonth()] + ' ' + (now.getFullYear() + 543);
+      $('s-deadline').innerHTML = deadlineHtml();
       const groups = { basic: 'Mission พื้นฐาน', feedback: 'Feedback', extra: '⭐ Mission เพิ่มเติม' };
       const cur = $('s-mission').value;
+      const usage = state.usage || {};
+      // บอกสิทธิ์ที่เหลือ · ส่งครบแล้วเลือกไม่ได้ (Mission ที่นับต่อ Facebook นับรวมไม่ได้ จึงไม่ปิด)
+      const optText = (m) => {
+        let t = `${m.name} — ${m.points} คะแนน`;
+        if (m.maxPerMonth && m.maxScope !== 'poster' && usage[m.id] != null) {
+          const left = Math.max(0, m.maxPerMonth - usage[m.id]);
+          t += left ? ` · เหลือ ${left}/${m.maxPerMonth}` : ' · ✔ ครบแล้วเดือนนี้';
+        }
+        return t;
+      };
+      const full = (m) => m.maxPerMonth && m.maxScope !== 'poster' && usage[m.id] != null && usage[m.id] >= m.maxPerMonth;
       $('s-mission').innerHTML = '<option value="">— เลือก Mission —</option>' + Object.keys(groups).map((k) => {
         const ms = state.missions.filter((m) => (m.group || 'basic') === k);
-        return ms.length ? `<optgroup label="${groups[k]}">${ms.map((m) => `<option value="${esc(m.id)}">${esc(m.name)} — ${m.points} คะแนน</option>`).join('')}</optgroup>` : '';
+        return ms.length ? `<optgroup label="${groups[k]}">${ms.map((m) => `<option value="${esc(m.id)}"${full(m) ? ' disabled' : ''}>${esc(optText(m))}</option>`).join('')}</optgroup>` : '';
       }).join('');
       if (cur) $('s-mission').value = cur;
       onMissionChange();
@@ -317,9 +385,7 @@
     try {
       let r;
       try {
-        r = await api('submit', { missionId: $('s-mission').value, links: p.ok,
-          images: p.imgs.map((im) => ({ name: im.name, type: im.type, data: im.data, hash: im.hash })),
-          poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
+        r = await submitInRounds(p, btn, slow);
       } catch (err) {
         if (!err.uncertain) throw err;
         btn.textContent = 'กำลังตรวจสอบว่าบันทึกแล้วหรือยัง…';
@@ -340,6 +406,31 @@
       setLinkBoxes(leftLinks, leftImgs);
     } catch (err) { toast(err.message, true); }
     finally { clearTimeout(slow); btn.disabled = false; state.busy = false; updateLinkCount(); }
+  }
+
+  /**
+   * ส่งเป็นรอบ: รอบแรก = ลิงก์ทั้งหมด + รูป 4 รูป · รอบต่อไปรอบละ 4 รูป (ใช้ batchId เดิม = การ์ดเดียวกันใน CTM)
+   * โชว์ "อัปโหลดรูป 4/12" บนปุ่ม · รวมผลทุกรอบเป็นผลเดียว
+   */
+  const IMG_PER_ROUND = 4;
+  async function submitInRounds(p, btn, slow) {
+    const base = { missionId: $('s-mission').value, poster: $('s-poster').value.trim(), note: $('s-note').value.trim() };
+    const pack = (arr) => arr.map((im) => ({ name: im.name, type: im.type, data: im.data, hash: im.hash }));
+    const imgs = p.imgs.slice(), total = imgs.length;
+    const out = { accepted: [], skipped: [], remaining: null, batchId: '' };
+    let first = true, sent = 0;
+    do {
+      const part = imgs.splice(0, IMG_PER_ROUND);
+      if (total) { clearTimeout(slow); btn.textContent = `⏳ อัปโหลดรูป ${sent + part.length}/${total}…`; }
+      const r = await api('submit', Object.assign({}, base, {
+        links: first ? p.ok : [], images: pack(part), batchId: out.batchId, more: imgs.length > 0 || (first && p.ok.length + total > 1) }));
+      out.accepted = out.accepted.concat(r.accepted || []);
+      out.skipped = out.skipped.concat(r.skipped || []);
+      out.remaining = r.remaining;
+      out.batchId = out.batchId || r.batchId || '';
+      sent += part.length; first = false;
+    } while (imgs.length);
+    return out;
   }
 
   /**
@@ -445,6 +536,8 @@
     row.dataset.hash = img.hash;
     row.innerHTML = '<span class="n"></span><div class="img-box"><img alt=""><span></span></div><button type="button" class="icon x" title="ลบรูปนี้" aria-label="ลบรูปนี้">×</button>';
     row.querySelector('img').src = img.thumb;
+    row.querySelector('.img-box').onclick = () => viewImage(img);
+    row.querySelector('.img-box').title = 'แตะเพื่อดูรูปใหญ่';
     row.querySelector('.img-box span').textContent = img.name;
     row.querySelector('.x').onclick = () => {
       row.remove(); delete imgStore[img.hash];
@@ -455,6 +548,20 @@
     else $('s-links').appendChild(row);
     updateLinkCount();
     return true;
+  }
+
+  /** ดูรูปใหญ่ก่อนส่ง (ปิด: แตะที่ว่าง / ✕ / Esc) */
+  function viewImage(img) {
+    const o = document.createElement('div');
+    o.className = 'overlay viewer';
+    o.innerHTML = '<figure><img alt=""><figcaption></figcaption></figure><button type="button" class="icon x" aria-label="ปิด">✕</button>';
+    o.querySelector('img').src = 'data:' + img.type + ';base64,' + img.data;
+    o.querySelector('figcaption').textContent = img.name;
+    const close = () => { o.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (ev) => { if (ev.key === 'Escape') close(); };
+    o.onclick = (ev) => { if (ev.target === o || ev.target.classList.contains('x')) close(); };
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(o);
   }
 
   async function addImages(files) {
@@ -637,18 +744,36 @@
         <td>${fmtDate(r.createdAt)}</td>
         <td>${esc(r.mission)}${r.poster ? `<div class="note muted">${esc(r.poster)}</div>` : ''}</td>
         <td>${r.kind === 'image' ? '<span class="muted" title="รูปเก็บส่วนตัว ทีมงานเท่านั้นที่เปิดได้">🖼️ รูปหลักฐาน</span>' : `<a href="${esc(safeUrl(r.link))}" target="_blank" rel="noopener">เปิดลิงก์</a>`}</td>
-        <td><span class="pill ${esc(r.status)}">${STATUS_TH[r.status] || esc(r.status)}</span>${r.reason ? `<div class="note muted">${esc(r.reason)}</div>` : ''}</td>
+        <td><span class="pill ${esc(r.status)}">${STATUS_TH[r.status] || esc(r.status)}</span>${r.reason ? `<div class="note muted">${esc(r.reason)}</div>` : ''}${r.status === 'rejected' ? `<div><button type="button" class="link-btn resend" data-m="${esc(r.missionId)}" data-l="${r.kind === 'image' ? '' : esc(r.link)}" data-ym="${esc(r.ym)}">↻ แก้แล้วส่งใหม่</button></div>` : ''}</td>
         <td class="r">${r.status === 'approved' ? '<b>+' + fmtNum(r.approvedPoints) + '</b>' : '<span class="muted">—</span>'}</td></tr>`).join('')
         : '<tr><td colspan="5" class="empty">ยังไม่มี Report ในเดือนนี้ — <a href="#" id="go-send">ส่ง Report แรก</a></td></tr>';
       const go = $('go-send');
       if (go) go.onclick = (ev) => { ev.preventDefault(); switchPage('send'); };
+      $('h-body').querySelectorAll('.resend').forEach((b) => { b.onclick = () => resendFrom(b.dataset); });
     } catch (err) { if (!silent) toast(err.message, true); }
+  }
+
+  /**
+   * "แก้แล้วส่งใหม่": เปิดหน้าส่งพร้อมเลือก Mission เดิม + ลิงก์เดิม (แก้ได้) · รูปต้องแคปใหม่
+   * Report ของเดือนที่ปิดรอบแล้วส่งเข้าเดือนนี้ไม่ได้ → แจ้งแทน
+   */
+  function resendFrom(ds) {
+    const n = new Date(), ymNow = n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2);
+    if (ds.ym && ds.ym !== ymNow) return toast('Report เดือนที่ปิดรอบแล้ว ส่งใหม่ไม่ได้ — ส่งเป็นงานของเดือนนี้แทน', true);
+    switchPage('send');
+    resetSendForm();
+    const opt = Array.prototype.find.call($('s-mission').options, (o) => o.value === ds.m);
+    if (!opt) toast('Mission นี้ไม่เปิดให้ส่งในเดือนนี้แล้ว', true);
+    else if (opt.disabled) toast('Mission นี้ส่งครบจำนวนของเดือนนี้แล้ว', true);
+    else { $('s-mission').value = ds.m; onMissionChange(); }
+    if (ds.l) setLinkBoxes([ds.l]);
+    toast(ds.l ? 'แก้ลิงก์ (หรือโพสต์ใหม่) แล้วกดส่งได้เลย' : 'เพิ่มรูปที่แคปใหม่ แล้วกดส่งได้เลย');
   }
 
   // ---------- theme ----------
   function applyTheme(t) {
     document.documentElement.classList.toggle('dark', t === 'dark');
-    $('b-theme').textContent = t === 'dark' ? '☀️' : '🌙';
+    $('b-theme').querySelector('em').textContent = t === 'dark' ? '☀️' : '🌙';
   }
 
   // ---------- DEMO (ใช้เมื่อยังไม่ได้ใส่ API_URL) ----------
@@ -738,7 +863,36 @@
     ['s-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
-    $('b-out').onclick = () => logout(false);
+    $('b-out').onclick = () => { if (confirm('ออกจากระบบใช่ไหม?' + (store.get('rgs_token') ? '\n(เครื่องนี้จะไม่จำการเข้าสู่ระบบแล้ว)' : ''))) logout(false); };
+    // ช่องรหัสผ่าน: ปุ่ม 👁️ แสดง/ซ่อน + เตือนเมื่อเปิด Caps Lock
+    document.querySelectorAll('input[type=password]').forEach((inp) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'pw';
+      inp.parentNode.insertBefore(wrap, inp);
+      wrap.appendChild(inp);
+      const eye = document.createElement('button');
+      eye.type = 'button'; eye.className = 'icon eye'; eye.textContent = '👁️';
+      eye.setAttribute('aria-label', 'แสดงรหัสผ่าน'); eye.title = 'แสดง/ซ่อนรหัสผ่าน';
+      eye.onclick = () => {
+        const show = inp.type === 'password';
+        inp.type = show ? 'text' : 'password';
+        eye.textContent = show ? '🙈' : '👁️';
+        eye.setAttribute('aria-label', show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน');
+        inp.focus();
+      };
+      wrap.appendChild(eye);
+      const caps = document.createElement('div');
+      caps.className = 'note caps'; caps.hidden = true; caps.textContent = '⇪ Caps Lock เปิดอยู่';
+      wrap.after(caps);
+      const check = (ev) => { if (ev.getModifierState) caps.hidden = !ev.getModifierState('CapsLock'); };
+      inp.addEventListener('keydown', check); inp.addEventListener('keyup', check);
+      inp.addEventListener('blur', () => { caps.hidden = true; });
+    });
+    // ฟอร์มถูก reset → กลับเป็นซ่อนรหัส
+    ['f-login', 'f-pass'].forEach((id) => $(id).addEventListener('reset', () => {
+      $(id).querySelectorAll('.pw input').forEach((i) => { i.type = 'password'; });
+      $(id).querySelectorAll('.pw .eye').forEach((b) => { b.textContent = '👁️'; });
+    }));
     // วิธีใช้งาน: ปุ่ม ❓ / ลิงก์ในหน้า Login · ปิดด้วย ✕ · คลิกนอกกล่อง · Esc
     const help = $('help');
     const closeHelp = () => { help.hidden = true; };
@@ -751,8 +905,8 @@
       store.set('rgs_theme', t); applyTheme(t);
     };
     document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => switchPage(t.dataset.p)));
-    ['d-year', 'd-month'].forEach((id) => $(id).addEventListener('change', () => loadDash()));
-    ['h-year', 'h-month'].forEach((id) => $(id).addEventListener('change', () => loadHist()));
+    ['d-year', 'd-month'].forEach((id) => $(id).addEventListener('change', () => { lockFutureMonths('d'); loadDash(); }));
+    ['h-year', 'h-month'].forEach((id) => $(id).addEventListener('change', () => { lockFutureMonths('h'); loadHist(); }));
 
     const savedEmail = store.get('rgs_email');
     if (savedEmail) $('l-email').value = savedEmail;

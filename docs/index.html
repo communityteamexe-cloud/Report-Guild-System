@@ -92,21 +92,22 @@
       <span class="muted" id="g-game"></span>
     </div>
     <nav class="tabs">
-      <button class="tab on" data-p="dash">คะแนน</button>
-      <button class="tab" data-p="send">ส่ง Report</button>
-      <button class="tab" data-p="hist">ประวัติ</button>
+      <button class="tab on" data-p="dash"><i>📊</i> คะแนน</button>
+      <button class="tab" data-p="send"><i>📤</i> ส่ง Report</button>
+      <button class="tab" data-p="hist"><i>🕘</i> ประวัติ</button>
     </nav>
     <div class="menu">
-      <button class="icon open-help" title="วิธีใช้งาน" aria-label="วิธีใช้งาน">❓</button>
-      <button class="icon" id="b-theme" title="สลับโหมดมืด" aria-label="สลับโหมดมืด">🌙</button>
-      <button class="icon" id="b-pass" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน">🔑</button>
-      <button class="icon" id="b-out" title="ออกจากระบบ" aria-label="ออกจากระบบ">⎋</button>
+      <button class="icon lbl open-help" title="วิธีใช้งาน">❓<span>วิธีใช้</span></button>
+      <button class="icon lbl" id="b-theme" title="สลับโหมดมืด"><em>🌙</em><span>ธีม</span></button>
+      <button class="icon lbl" id="b-pass" title="เปลี่ยนรหัสผ่าน">🔑<span>รหัสผ่าน</span></button>
+      <button class="icon lbl" id="b-out" title="ออกจากระบบ">🚪<span>ออก</span></button>
     </div>
   </header>
 
   <main class="wrap">
     <!-- Dashboard -->
     <div class="page on" id="p-dash">
+      <div id="d-notice"></div>
       <div class="head">
         <h2>คะแนนของกิลด์ <span id="d-rank"></span></h2>
         <div class="row">
@@ -143,6 +144,7 @@
         <form class="card" id="f-send" novalidate>
           <h2>ส่ง Report</h2>
           <p class="muted" id="s-sub"></p>
+          <div id="s-deadline"></div>
           <label for="s-mission">Mission</label>
           <select id="s-mission" required></select>
           <div id="s-poster-wrap" hidden>
