@@ -32,7 +32,8 @@
     <h3>2️⃣ ส่ง Report</h3>
     <ul>
       <li>แท็บ <b>ส่ง Report</b> → เลือก Mission → วางลิงก์หลักฐาน <b>1 กล่อง = 1 ลิงก์</b> → กดส่ง</li>
-      <li>หลายลิงก์: กด <b>＋ เพิ่มลิงก์</b> · วางหลายลิงก์ในกล่องเดียวระบบแยกให้เอง · หรือ <b>📂 นำเข้าจากไฟล์</b> (.txt .csv .xlsx)</li>
+      <li>หลายลิงก์: กด <b>＋ เพิ่มลิงก์</b> · วางหลายลิงก์ในกล่องเดียวระบบแยกให้เอง · หรือ <b>📂 นำเข้าลิงก์จากไฟล์</b> (.txt .csv .xlsx)</li>
+      <li>รูปหลักฐาน: กด <b>🖼️ เพิ่มรูป</b> · ลากรูปมาวาง · หรือแคปหน้าจอแล้วกด <b>Ctrl+V</b> — 1 รูป = 1 กล่อง นับเหมือนลิงก์ (รูปเก็บเป็นความลับ ทีมงานเท่านั้นที่เปิดดูได้)</li>
       <li>โพสต์ต้องเป็น <b>สาธารณะ</b> และติด Hashtag ตามกติกาของเกม</li>
       <li>1 ลิงก์ส่งได้ 1 ครั้ง · แต่ละ Mission มีจำนวนสูงสุดต่อเดือน (ดูในรายละเอียด Mission)</li>
     </ul>
@@ -148,14 +149,16 @@
             <label for="s-poster">ชื่อ Facebook ผู้โพสต์</label>
             <input id="s-poster" maxlength="100" placeholder="เช่น Somchai Gamer">
           </div>
-          <label>ลิงก์หลักฐาน <span class="muted" style="font-weight:400">— 1 กล่อง = 1 ลิงก์ (สูงสุด 50)</span></label>
+          <label>หลักฐาน <span class="muted" style="font-weight:400">— 1 กล่อง = 1 ลิงก์ หรือ 1 รูป (รวมสูงสุด 50)</span></label>
           <div id="s-links" class="links"></div>
           <div class="row-btns">
             <button type="button" class="btn ghost add" id="s-add">＋ เพิ่มลิงก์</button>
-            <button type="button" class="btn ghost add" id="s-import">📂 นำเข้าจากไฟล์</button>
+            <button type="button" class="btn ghost add" id="s-addimg">🖼️ เพิ่มรูป</button>
+            <button type="button" class="btn ghost add" id="s-import">📂 นำเข้าลิงก์จากไฟล์</button>
+            <input type="file" id="s-img" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
             <input type="file" id="s-file" accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv" hidden>
           </div>
-          <div class="note muted">รองรับ .txt · .csv · .xlsx · .xls (Google Sheets → ไฟล์ → ดาวน์โหลด) · ลากไฟล์มาวางบนกล่องลิงก์ได้</div>
+          <div class="note muted">รูป: เลือกได้หลายรูป · ลากมาวาง · หรือแคปหน้าจอแล้วกด Ctrl+V ในหน้านี้ · ไฟล์ลิงก์: .txt .csv .xlsx .xls</div>
           <div class="note" id="s-count"></div>
           <div id="s-result"></div>
           <label for="s-note">รายละเอียดเพิ่มเติม (ไม่บังคับ)</label>

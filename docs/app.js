@@ -308,31 +308,36 @@
     const p = parseLinks();
     if (!$('s-mission').value) return toast('กรุณาเลือก Mission', true);
     if (!$('s-poster-wrap').hidden && !$('s-poster').value.trim()) return toast('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์', true);
-    if (!p.ok.length) return toast('กรุณาใส่ลิงก์หลักฐานที่ขึ้นต้นด้วย http:// หรือ https:// อย่างน้อย 1 ลิงก์', true);
-    if (p.ok.length > MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' ลิงก์', true);
+    const n = p.ok.length + p.imgs.length;
+    if (!n) return toast('กรุณาใส่ลิงก์ (http:// หรือ https://) หรือเพิ่มรูปหลักฐานอย่างน้อย 1 รายการ', true);
+    if (n > MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' รายการ (ลิงก์ + รูป)', true);
     btn.disabled = true; state.busy = true;
-    btn.textContent = p.ok.length > 1 ? `กำลังส่ง ${p.ok.length} ลิงก์…` : 'กำลังส่ง…';
+    btn.textContent = p.imgs.length ? `กำลังอัปโหลด ${n} รายการ…` : (n > 1 ? `กำลังส่ง ${n} ลิงก์…` : 'กำลังส่ง…');
     const slow = setTimeout(() => { btn.textContent = 'กำลังบันทึก… อาจใช้เวลาสักครู่ อย่าเพิ่งปิดหน้านี้'; }, 3000);
     try {
       let r;
       try {
-        r = await api('submit', { missionId: $('s-mission').value, links: p.ok, poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
+        r = await api('submit', { missionId: $('s-mission').value, links: p.ok,
+          images: p.imgs.map((im) => ({ name: im.name, type: im.type, data: im.data, hash: im.hash })),
+          poster: $('s-poster').value.trim(), note: $('s-note').value.trim() });
       } catch (err) {
         if (!err.uncertain) throw err;
         btn.textContent = 'กำลังตรวจสอบว่าบันทึกแล้วหรือยัง…';
-        r = await verifySubmitted(p.ok);
+        r = await verifySubmitted(p.ok, p.imgs);
       }
-      const leftover = (r.skipped || []).map((x) => x.link).concat(p.bad);
-      if (!leftover.length && (r.accepted || []).length) {
-        // ส่งครบทุกลิงก์ → ล้างฟอร์ม แล้วกลับหน้าคะแนน (โหลดใหม่ให้เห็นรายการรอตรวจ)
+      const sk = r.skipped || [];
+      const leftLinks = sk.filter((x) => x.kind !== 'image').map((x) => x.link).concat(p.bad);
+      const leftImgs = sk.filter((x) => x.kind === 'image').map((x) => String(x.key || '').replace(/^img:/, ''));
+      if (!leftLinks.length && !leftImgs.length && (r.accepted || []).length) {
+        // ส่งครบทุกรายการ → ล้างฟอร์ม แล้วกลับหน้าคะแนน (โหลดใหม่ให้เห็นรายการรอตรวจ)
         resetSendForm();
-        toast(`✅ ส่ง Report ${r.accepted.length} ลิงก์เรียบร้อย — รอทีมงานตรวจ`);
+        toast(`✅ ส่ง Report ${r.accepted.length} รายการเรียบร้อย — รอทีมงานตรวจ`);
         switchPage('dash');
         return;
       }
-      // มีลิงก์ค้าง → อยู่หน้าเดิม โชว์สรุป + เหลือเฉพาะกล่องที่ต้องแก้
+      // มีรายการค้าง → อยู่หน้าเดิม โชว์สรุป + เหลือเฉพาะกล่องที่ต้องแก้
       renderSendResult(r);
-      setLinkBoxes(leftover);
+      setLinkBoxes(leftLinks, leftImgs);
     } catch (err) { toast(err.message, true); }
     finally { clearTimeout(slow); btn.disabled = false; state.busy = false; updateLinkCount(); }
   }
@@ -341,14 +346,18 @@
    * ผลส่งไม่ชัดเจน (Google ตอบผิดรูป/เน็ตหลุดระหว่างรอ) → ดูประวัติเดือนนี้ว่าลิงก์ไหนเข้าแล้ว
    * ไม่ส่งซ้ำเอง เพราะอาจบันทึกไปแล้ว
    */
-  async function verifySubmitted(links) {
+  async function verifySubmitted(links, imgs) {
     const now = new Date();
     await new Promise((ok) => setTimeout(ok, 1500));
     const rows = await api('history', { year: now.getFullYear(), month: now.getMonth() + 1 });
     const saved = {};
-    rows.forEach((x) => { if (x.status !== 'rejected') saved[String(x.link).trim()] = true; });
-    const accepted = [], skipped = [];
-    links.forEach((l) => saved[l] ? accepted.push({ link: l }) : skipped.push({ link: l, reason: 'ยังไม่ได้บันทึก (ระบบตอบช้า) — กดส่งอีกครั้ง' }));
+    rows.forEach((x) => { if (x.status !== 'rejected') { saved[String(x.link).trim()] = true; if (x.hash) saved['img:' + x.hash] = true; } });
+    const accepted = [], skipped = [], why = 'ยังไม่ได้บันทึก (ระบบตอบช้า) — กดส่งอีกครั้ง';
+    links.forEach((l) => saved[l] ? accepted.push({ link: l }) : skipped.push({ link: l, kind: 'link', reason: why }));
+    (imgs || []).forEach((im) => {
+      const it = { link: '🖼️ ' + im.name, kind: 'image', key: 'img:' + im.hash };
+      if (saved[it.key]) accepted.push(it); else { it.reason = why; skipped.push(it); }
+    });
     return { accepted: accepted, skipped: skipped, remaining: null };
   }
 
@@ -359,7 +368,7 @@
 
   /** เพิ่มกล่องลิงก์ 1 กล่อง (ค่าเริ่มต้นได้) */
   function addLinkBox(value, focus) {
-    if (linkInputs().length >= MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' ลิงก์', true);
+    if (boxCount() >= MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' รายการ (ลิงก์ + รูป)', true);
     const row = document.createElement('div');
     row.className = 'link-row';
     row.innerHTML = '<span class="n"></span><input type="url" inputmode="url" placeholder="https://facebook.com/groups/..." aria-label="ลิงก์หลักฐาน"><button type="button" class="icon x" title="ลบกล่องนี้" aria-label="ลบกล่องนี้">×</button>';
@@ -384,6 +393,89 @@
     $('s-links').appendChild(row);
     if (focus) inp.focus();
     updateLinkCount();
+  }
+
+  // ---------- รูปหลักฐาน (1 รูป = 1 กล่อง · ย่อในเครื่องก่อนส่ง) ----------
+  const IMG_MAX_SIDE = 1600, IMG_QUALITY = 0.82;
+  const imgStore = {};                     // hash → { name, type, data(base64), hash, thumb }
+  const boxCount = () => $('s-links').children.length;
+  const imgRows = () => Array.prototype.slice.call(document.querySelectorAll('#s-links .img-row'));
+
+  async function sha256Hex(buf) {
+    const d = await crypto.subtle.digest('SHA-256', buf);
+    return Array.prototype.map.call(new Uint8Array(d), (b) => ('0' + b.toString(16)).slice(-2)).join('');
+  }
+
+  /** ย่อรูป (ด้านยาว ≤ 1600px → JPEG) · GIF ส่งตามเดิม · hash จากไฟล์ต้นฉบับ (กันส่งรูปเดิมซ้ำ) */
+  async function prepareImage(file) {
+    const buf = await file.arrayBuffer();
+    const hash = await sha256Hex(buf);
+    const bmp = await new Promise((ok, fail) => {
+      const im = new Image();
+      im.onload = () => ok(im);
+      im.onerror = () => fail(new Error('เปิดรูป "' + file.name + '" ไม่ได้'));
+      im.src = URL.createObjectURL(file);
+    });
+    const draw = (max, type, q) => {
+      const s = Math.min(1, max / Math.max(bmp.naturalWidth, bmp.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.naturalWidth * s); c.height = Math.round(bmp.naturalHeight * s);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);   // PNG โปร่งใส → พื้นขาว
+      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      return c.toDataURL(type, q);
+    };
+    const thumb = draw(160, 'image/jpeg', 0.7);
+    let type = 'image/jpeg', data;
+    if (file.type === 'image/gif') { type = 'image/gif'; data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.readAsDataURL(file); }); }
+    else data = draw(IMG_MAX_SIDE, 'image/jpeg', IMG_QUALITY).split(',')[1];
+    URL.revokeObjectURL(bmp.src);
+    if (data.length * 0.75 > 5 * 1024 * 1024) throw new Error('รูป "' + file.name + '" ใหญ่เกิน 5MB');
+    const base = (file.name || 'screenshot').replace(/\.[^.]+$/, '').replace(/[^\w฀-๿-]+/g, '_').slice(0, 60) || 'image';
+    return { name: base + (type === 'image/gif' ? '.gif' : '.jpg'), type, data, hash, thumb };
+  }
+
+  /** เพิ่มกล่องรูป (ใช้แทนกล่องลิงก์ว่างอันสุดท้ายถ้ามี) */
+  function addImageBox(img) {
+    const emptyLink = linkInputs().filter((i) => !i.value.trim());
+    if (boxCount() - emptyLink.length >= MAX_LINKS) return false;
+    imgStore[img.hash] = img;
+    const row = document.createElement('div');
+    row.className = 'link-row img-row';
+    row.dataset.hash = img.hash;
+    row.innerHTML = '<span class="n"></span><div class="img-box"><img alt=""><span></span></div><button type="button" class="icon x" title="ลบรูปนี้" aria-label="ลบรูปนี้">×</button>';
+    row.querySelector('img').src = img.thumb;
+    row.querySelector('.img-box span').textContent = img.name;
+    row.querySelector('.x').onclick = () => {
+      row.remove(); delete imgStore[img.hash];
+      if (!boxCount()) addLinkBox('');
+      updateLinkCount();
+    };
+    if (emptyLink.length) emptyLink[emptyLink.length - 1].parentNode.replaceWith(row);
+    else $('s-links').appendChild(row);
+    updateLinkCount();
+    return true;
+  }
+
+  async function addImages(files) {
+    files = Array.prototype.filter.call(files || [], (f) => /^image\//.test(f.type));
+    if (!files.length) return;
+    const btn = $('s-addimg');
+    btn.disabled = true; btn.textContent = `⏳ กำลังเตรียมรูป 0/${files.length}…`;
+    let added = 0, dup = 0, over = 0;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        btn.textContent = `⏳ กำลังเตรียมรูป ${i + 1}/${files.length}…`;
+        try {
+          const img = await prepareImage(files[i]);
+          if (imgStore[img.hash]) { dup++; continue; }
+          if (addImageBox(img)) added++; else over++;
+        } catch (err) { toast(err.message, true); }
+      }
+      if (added) toast(`🖼️ เพิ่มรูป ${added} รูป` + (dup ? ` · ข้ามรูปซ้ำ ${dup}` : ''));
+      else if (dup) toast('รูปนี้อยู่ในรายการแล้ว', true);
+      if (over) toast(`⚠️ เกิน ${MAX_LINKS} กล่อง — เหลืออีก ${over} รูป ส่งรอบนี้ก่อนแล้วค่อยเพิ่ม`, true);
+    } finally { btn.disabled = false; btn.textContent = '🖼️ เพิ่มรูป'; $('s-img').value = ''; }
   }
 
   // ---------- นำเข้าลิงก์จากไฟล์ (อ่านในเครื่อง ไม่อัปโหลด) ----------
@@ -451,7 +543,7 @@
     fresh.forEach((l) => {
       const empty = linkInputs().find((i) => !i.value.trim());
       if (empty) { empty.value = l; added++; }
-      else if (linkInputs().length < MAX_LINKS) { addLinkBox(l); added++; }
+      else if (boxCount() < MAX_LINKS) { addLinkBox(l); added++; }
       else over++;
     });
     updateLinkCount();
@@ -485,18 +577,24 @@
     onMissionChange();
   }
 
-  /** ล้างกล่องทั้งหมด แล้วใส่ลิงก์ที่ให้มา (ไม่มี = กล่องว่าง 1 กล่อง) */
-  function setLinkBoxes(links) {
-    $('s-links').innerHTML = '';
-    (links && links.length ? links : ['']).forEach((l) => addLinkBox(l));
+  /** ล้างกล่องทั้งหมด แล้วใส่ลิงก์ที่ให้มา + เก็บกล่องรูปที่ระบุ hash ไว้ (ไม่มีอะไรเลย = กล่องลิงก์ว่าง 1 กล่อง) */
+  function setLinkBoxes(links, keepImgHashes) {
+    const keep = {};
+    (keepImgHashes || []).forEach((h) => { keep[h] = true; });
+    imgRows().forEach((r) => { if (!keep[r.dataset.hash]) { delete imgStore[r.dataset.hash]; r.remove(); } });
+    Array.prototype.slice.call(document.querySelectorAll('#s-links .link-row:not(.img-row)')).forEach((r) => r.remove());
+    (links || []).forEach((l) => addLinkBox(l));
+    if (!boxCount()) addLinkBox('');
+    updateLinkCount();
   }
 
-  /** อ่านทุกกล่อง → ok / bad / dup · ทำเครื่องหมายกล่องที่มีปัญหา */
+  /** อ่านทุกกล่อง → ok (ลิงก์) / imgs (รูป) / bad / dup · ใส่เลขลำดับ + ทำเครื่องหมายกล่องที่มีปัญหา */
   function parseLinks() {
-    const seen = {}, out = { ok: [], bad: [], dup: [] };
-    linkInputs().forEach((inp, i) => {
+    const seen = {}, out = { ok: [], bad: [], dup: [], imgs: [] };
+    Array.prototype.forEach.call($('s-links').children, (row, i) => { const n = row.querySelector('.n'); if (n) n.textContent = i + 1; });
+    imgRows().forEach((r) => { const im = imgStore[r.dataset.hash]; if (im) out.imgs.push(im); });
+    linkInputs().forEach((inp) => {
       const s = inp.value.trim();
-      inp.parentNode.querySelector('.n').textContent = i + 1;
       inp.classList.remove('is-bad', 'is-dup');
       if (!s) return;
       if (!/^https?:\/\/\S+$/i.test(s)) { out.bad.push(s); inp.classList.add('is-bad'); }
@@ -510,23 +608,25 @@
     const p = parseLinks();
     const parts = [];
     if (p.ok.length) parts.push(`<span class="ok">✅ ลิงก์ถูกต้อง ${p.ok.length}</span>`);
+    if (p.imgs.length) parts.push(`<span class="ok">🖼️ รูป ${p.imgs.length}</span>`);
     if (p.dup.length) parts.push(`<span class="warn">⚠️ ลิงก์ซ้ำ ${p.dup.length} (จะส่งครั้งเดียว)</span>`);
     if (p.bad.length) parts.push(`<span class="bad">❌ ไม่ใช่ลิงก์ ${p.bad.length}</span>`);
-    if (p.ok.length > MAX_LINKS) parts.push(`<span class="bad">เกิน ${MAX_LINKS} ลิงก์</span>`);
+    const n = p.ok.length + p.imgs.length;
+    if (n > MAX_LINKS) parts.push(`<span class="bad">เกิน ${MAX_LINKS} รายการ</span>`);
     $('s-count').innerHTML = parts.join(' · ');
-    $('s-btn').textContent = p.ok.length > 1 ? `ส่ง Report (${p.ok.length} ลิงก์)` : 'ส่ง Report';
+    $('s-btn').textContent = n > 1 ? `ส่ง Report (${n} รายการ)` : 'ส่ง Report';
   }
 
   function renderSendResult(r) {
     const acc = r.accepted || [], sk = r.skipped || [];
     const rem = r.remaining == null ? '' : ` · เดือนนี้ส่งได้อีก ${r.remaining} ครั้ง`;
     $('s-result').innerHTML = `<div class="result ${sk.length ? 'mixed' : 'good'}">
-      <b>${acc.length ? `✅ ส่งสำเร็จ ${acc.length} ลิงก์ — รอทีมงานตรวจ` : '❌ ไม่มีลิงก์ที่ส่งได้'}</b>${rem}
-      ${sk.length ? `<div class="note">ข้าม ${sk.length} ลิงก์ (ยังอยู่ในกล่องด้านบน แก้แล้วส่งใหม่ได้):</div><ul>${sk.map((x) => `<li><span class="muted">${esc(x.link)}</span> — ${esc(x.reason)}</li>`).join('')}</ul>` : ''}
+      <b>${acc.length ? `✅ ส่งสำเร็จ ${acc.length} รายการ — รอทีมงานตรวจ` : '❌ ไม่มีรายการที่ส่งได้'}</b>${rem}
+      ${sk.length ? `<div class="note">ข้าม ${sk.length} รายการ (ยังอยู่ในกล่องด้านบน แก้แล้วส่งใหม่ได้):</div><ul>${sk.map((x) => `<li><span class="muted">${esc(x.link)}</span> — ${esc(x.reason)}</li>`).join('')}</ul>` : ''}
       ${acc.length ? '<a href="#" id="go-hist">ดูในประวัติ →</a>' : ''}</div>`;
     const go = $('go-hist');
     if (go) go.onclick = (ev) => { ev.preventDefault(); switchPage('hist'); };
-    if (acc.length) toast(`ส่ง Report ${acc.length} ลิงก์เรียบร้อย`);
+    if (acc.length) toast(`ส่ง Report ${acc.length} รายการเรียบร้อย`);
   }
 
   // ---------- history ----------
@@ -536,7 +636,7 @@
       $('h-body').innerHTML = rows.length ? rows.map((r) => `<tr>
         <td>${fmtDate(r.createdAt)}</td>
         <td>${esc(r.mission)}${r.poster ? `<div class="note muted">${esc(r.poster)}</div>` : ''}</td>
-        <td><a href="${esc(safeUrl(r.link))}" target="_blank" rel="noopener">เปิดลิงก์</a></td>
+        <td>${r.kind === 'image' ? '<span class="muted" title="รูปเก็บส่วนตัว ทีมงานเท่านั้นที่เปิดได้">🖼️ รูปหลักฐาน</span>' : `<a href="${esc(safeUrl(r.link))}" target="_blank" rel="noopener">เปิดลิงก์</a>`}</td>
         <td><span class="pill ${esc(r.status)}">${STATUS_TH[r.status] || esc(r.status)}</span>${r.reason ? `<div class="note muted">${esc(r.reason)}</div>` : ''}</td>
         <td class="r">${r.status === 'approved' ? '<b>+' + fmtNum(r.approvedPoints) + '</b>' : '<span class="muted">—</span>'}</td></tr>`).join('')
         : '<tr><td colspan="5" class="empty">ยังไม่มี Report ในเดือนนี้ — <a href="#" id="go-send">ส่ง Report แรก</a></td></tr>';
@@ -617,7 +717,24 @@
     const drop = $('s-links');
     ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (ev) => { ev.preventDefault(); drop.classList.add('drag'); }));
     ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, () => drop.classList.remove('drag')));
-    drop.addEventListener('drop', (ev) => { ev.preventDefault(); importFile(ev.dataTransfer.files[0]); });
+    // ลากมาวาง: รูป → กล่องรูป · ไฟล์อื่น → อ่านลิงก์ในไฟล์
+    drop.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      const files = Array.prototype.slice.call(ev.dataTransfer.files || []);
+      addImages(files.filter((f) => /^image\//.test(f.type)));
+      files.filter((f) => !/^image\//.test(f.type)).forEach((f) => importFile(f));
+    });
+    $('s-addimg').onclick = () => $('s-img').click();
+    $('s-img').addEventListener('change', () => addImages($('s-img').files));
+    // แคปหน้าจอแล้วกด Ctrl+V ที่ไหนก็ได้ในหน้าส่ง Report → เพิ่มเป็นกล่องรูป
+    document.addEventListener('paste', (ev) => {
+      const page = document.querySelector('.page.on');
+      if (!page || page.id !== 'p-send') return;
+      const files = Array.prototype.slice.call((ev.clipboardData && ev.clipboardData.files) || []).filter((f) => /^image\//.test(f.type));
+      if (!files.length) return;
+      ev.preventDefault();
+      addImages(files.map((f, i) => (f.name && f.name !== 'image.png') ? f : new File([f], `แคปหน้าจอ_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}_${i + 1}.png`, { type: f.type })));
+    });
     ['s-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);

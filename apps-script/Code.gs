@@ -26,7 +26,7 @@ const HEAD = {
   Missions:  ['MissionID', 'Game', 'Group', 'Name', 'Detail', 'Points', 'MaxPerMonth', 'MaxScope', 'StartYM', 'EndYM', 'Active', 'CuteGuild'],
   RankRules: ['Game', 'FromYear', 'SS', 'S'],
   Reports:   ['ReportID', 'CreatedAt', 'YM', 'Email', 'Game', 'GuildNameTH', 'MissionID', 'MissionName', 'Points',
-              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID']
+              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash']
 };
 const STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' };
 
@@ -521,10 +521,12 @@ function rankOf_(score, rule) {
 
 /**
  * กิลด์ส่ง Report → สถานะ pending
- * รับได้ทั้ง link เดียว หรือ links หลายลิงก์ (สูงสุด MAX_LINKS_PER_BATCH) · ทุกลิงก์ = 1 แถว ผูกด้วย BatchID เดียวกัน
- * ลิงก์ที่ไม่ผ่าน (ไม่ใช่ลิงก์ / ซ้ำ / เกินเพดาน) ถูกข้าม ไม่ทำให้ทั้งชุดล้ม
+ * รับ links[] (ลิงก์) และ images[] ({name,type,data(base64),hash}) รวมกันไม่เกิน MAX_LINKS_PER_BATCH
+ * ทุกลิงก์/ทุกรูป = 1 แถว ผูกด้วย BatchID เดียวกัน · รูปเก็บใน Drive (ส่วนตัว) → Link = ลิงก์ไฟล์ · Kind = image
+ * รายการที่ไม่ผ่าน (ไม่ใช่ลิงก์ / ซ้ำ / เกินเพดาน / รูปเสีย) ถูกข้าม ไม่ทำให้ทั้งชุดล้ม
  */
 const MAX_LINKS_PER_BATCH = 50;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;   // ต่อรูป (หน้าเว็บย่อให้ก่อนส่งอยู่แล้ว)
 
 function submitReport_(g, r) {
   const now = new Date();
@@ -535,34 +537,74 @@ function submitReport_(g, r) {
   if (m.maxScope === 'poster' && !poster) throw new Error('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์');
 
   const raw = Array.isArray(r.links) ? r.links : String(r.links || r.link || '').split(/\s+/);
-  const links = raw.map(function (s) { return String(s || '').trim(); }).filter(String);
-  if (!links.length) throw new Error('กรุณาใส่ลิงก์หลักฐานอย่างน้อย 1 ลิงก์');
-  if (links.length > MAX_LINKS_PER_BATCH) throw new Error('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS_PER_BATCH + ' ลิงก์');
+  const items = raw.map(function (s) { return String(s || '').trim(); }).filter(String)
+    .map(function (l) { return { kind: 'link', key: l, link: l }; })
+    .concat((Array.isArray(r.images) ? r.images : []).map(function (im) {
+      const h = String(im && im.hash || '').slice(0, 64);
+      return { kind: 'image', key: 'img:' + h, hash: h, name: String(im && im.name || 'image').slice(0, 80),
+        type: String(im && im.type || ''), data: String(im && im.data || '') };
+    }));
+  if (!items.length) throw new Error('กรุณาใส่ลิงก์หรือรูปหลักฐานอย่างน้อย 1 รายการ');
+  if (items.length > MAX_LINKS_PER_BATCH) throw new Error('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS_PER_BATCH + ' รายการ (ลิงก์ + รูป)');
 
-  return withLock_(function () {
-    const year = now.getFullYear();
+  const year = now.getFullYear();
+  const usedKeys_ = function () {
     const mine = readReports_(year).filter(function (x) {
       return x.Email === g.Email && x.YM === ym && x.MissionID === m.id && x.Status !== STATUS.REJECTED;
     });
-    const used = {};                                   // ลิงก์ที่ส่งแล้ว (รวมในชุดนี้)
-    mine.forEach(function (x) { used[String(x.Link).trim()] = true; });
-    let count = mine.filter(function (x) {
+    const used = {};
+    mine.forEach(function (x) { used[String(x.Link).trim()] = true; if (x.Hash) used['img:' + x.Hash] = true; });
+    const count = mine.filter(function (x) {
       return m.maxScope !== 'poster' || String(x.Poster).trim().toLowerCase() === poster.toLowerCase();
     }).length;
+    return { used: used, count: count };
+  };
+  const label = function (it) { return it.kind === 'image' ? '🖼️ ' + it.name : it.link; };
+  const precheck = function (it, st) {
+    if (it.kind === 'link' && !/^https?:\/\/\S+$/i.test(it.link)) return 'ไม่ใช่ลิงก์ (ต้องขึ้นต้น http:// หรือ https://)';
+    if (it.kind === 'image') {
+      if (!/^[0-9a-f]{16,64}$/i.test(it.hash)) return 'รูปเสีย ลองเลือกใหม่';
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(it.type)) return 'รองรับเฉพาะรูป JPG / PNG / WEBP / GIF';
+      if (it.data.length * 0.75 > MAX_IMAGE_BYTES) return 'รูปใหญ่เกิน 5MB';
+    }
+    if (st.used[it.key]) return it.kind === 'image' ? 'รูปนี้ส่งไปแล้วในเดือนนี้' : 'ลิงก์นี้ส่งไปแล้วในเดือนนี้';
+    if (m.maxPerMonth && st.count >= m.maxPerMonth) return 'เกินเพดาน ' + m.maxPerMonth + ' ครั้ง/เดือน' + (m.maxScope === 'poster' ? ' ของ Facebook นี้' : '');
+    return '';
+  };
 
-    const batchId = links.length > 1 ? 'B' + year + '-' + Utilities.getUuid().slice(0, 8) : '';
-    const accepted = [], skipped = [], rows = [];
-    links.forEach(function (link) {
-      if (!/^https?:\/\/\S+$/i.test(link)) return skipped.push({ link: link, reason: 'ไม่ใช่ลิงก์ (ต้องขึ้นต้น http:// หรือ https://)' });
-      if (used[link]) return skipped.push({ link: link, reason: 'ลิงก์นี้ส่งไปแล้วในเดือนนี้' });
-      if (m.maxPerMonth && count >= m.maxPerMonth) return skipped.push({ link: link, reason: 'เกินเพดาน ' + m.maxPerMonth + ' ครั้ง/เดือน' + (m.maxScope === 'poster' ? ' ของ Facebook นี้' : '') });
-      used[link] = true; count++;
+  // 1) ตรวจรอบแรก (ไม่ล็อก) แล้วอัปโหลดรูปที่ผ่าน — อัปโหลดนอกล็อก กิลด์อื่นไม่ต้องรอ
+  const pre = usedKeys_(), skipped = [];
+  pre.used = Object.assign({}, pre.used);
+  items.forEach(function (it) {
+    const why = precheck(it, pre);
+    if (why) { it.skip = why; return; }
+    pre.used[it.key] = true; pre.count++;
+    if (it.kind === 'image') {
+      try {
+        const blob = Utilities.newBlob(Utilities.base64Decode(it.data), it.type, it.name);
+        const f = evidenceFolder_(ym, g).createFile(blob);
+        f.setName(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyyMMdd-HHmmss') + '_' + it.hash.slice(0, 8) + '_' + it.name);
+        it.link = 'https://drive.google.com/file/d/' + f.getId() + '/view';
+      } catch (e) { it.skip = 'อัปโหลดรูปไม่สำเร็จ ลองใหม่อีกครั้ง'; }
+      it.data = '';
+    }
+  });
+
+  // 2) ล็อก → ตรวจซ้ำกับข้อมูลล่าสุด (กันส่งชนกัน) → บันทึก
+  return withLock_(function () {
+    const st = usedKeys_();
+    const batchId = items.length > 1 ? 'B' + year + '-' + Utilities.getUuid().slice(0, 8) : '';
+    const accepted = [], rows = [];
+    items.forEach(function (it) {
+      const why = it.skip || precheck(it, st);
+      if (why) return skipped.push({ link: label(it), key: it.key, kind: it.kind, reason: why });
+      st.used[it.key] = true; st.count++;
       const id = 'R' + year + '-' + Utilities.getUuid().slice(0, 8);
-      accepted.push({ link: link, reportId: id });
+      accepted.push({ link: label(it), key: it.key, kind: it.kind, reportId: id });
       rows.push({ ReportID: id, CreatedAt: now, YM: "'" + ym, Email: g.Email, Game: g.Game, GuildNameTH: g.NameTH,
-        MissionID: m.id, MissionName: m.name, Points: m.points, Poster: poster, Link: link,
+        MissionID: m.id, MissionName: m.name, Points: m.points, Poster: poster, Link: it.link,
         Note: String(r.note || '').slice(0, 500), Status: STATUS.PENDING, ApprovedPoints: '', Reason: '',
-        ReviewedAt: '', ReviewedBy: '', BatchID: batchId });
+        ReviewedAt: '', ReviewedBy: '', BatchID: batchId, Kind: it.kind, Hash: it.hash || '' });
     });
     if (rows.length) {
       appendRows_(reportSheetName_(year), rows);
@@ -570,8 +612,22 @@ function submitReport_(g, r) {
     }
     return { batchId: batchId, accepted: accepted, skipped: skipped,
       reportId: accepted.length === 1 ? accepted[0].reportId : undefined,
-      remaining: m.maxPerMonth ? Math.max(0, m.maxPerMonth - count) : null };
+      remaining: m.maxPerMonth ? Math.max(0, m.maxPerMonth - st.count) : null };
   });
+}
+
+/** โฟลเดอร์เก็บรูปหลักฐาน: (โฟลเดอร์ของชีต)/หลักฐาน/ปี-เดือน/ชื่อกิลด์.GuildID — ไฟล์เป็นส่วนตัว ไม่แชร์ */
+function evidenceFolder_(ym, g) {
+  const props = PropertiesService.getScriptProperties();
+  const key = 'EVF_' + ym + '_' + String(g.Email).toLowerCase();
+  const cached = props.getProperty(key);
+  if (cached) { try { return DriveApp.getFolderById(cached); } catch (e) { /* ถูกย้าย/ลบ → สร้างใหม่ */ } }
+  const sub = function (parent, name) { const it = parent.getFoldersByName(name); return it.hasNext() ? it.next() : parent.createFolder(name); };
+  const dbFile = DriveApp.getFileById(ss_().getId());
+  const root = dbFile.getParents().hasNext() ? dbFile.getParents().next() : DriveApp.getFolderById(PROJECT_PARENT_FOLDER);
+  const folder = sub(sub(sub(root, 'หลักฐาน'), ym), (GAMES[g.Game] ? g.Game + '_' : '') + g.NameEN + '.' + g.GuildID);
+  props.setProperty(key, folder.getId());
+  return folder;
 }
 
 /** ทีมอนุมัติ/ปฏิเสธ 1 รายการ (คงไว้ให้ CTM ที่เรียกแบบเดิม) */
@@ -646,7 +702,7 @@ function reportOut_(x) {
   return { id: x.ReportID, createdAt: x.CreatedAt instanceof Date ? x.CreatedAt.toISOString() : String(x.CreatedAt),
     ym: x.YM, email: x.Email, game: x.Game, guild: x.GuildNameTH, missionId: x.MissionID, mission: x.MissionName,
     points: Number(x.Points) || 0, poster: x.Poster, link: x.Link, note: x.Note, status: x.Status,
-    approvedPoints: x.ApprovedPoints === '' ? null : Number(x.ApprovedPoints), reason: x.Reason, batchId: x.BatchID || '' };
+    approvedPoints: x.ApprovedPoints === '' ? null : Number(x.ApprovedPoints), reason: x.Reason, batchId: x.BatchID || '', kind: x.Kind || 'link', hash: x.Hash || '' };
 }
 
 // ===================================================================
