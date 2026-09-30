@@ -19,6 +19,35 @@
 <body>
 <div id="toast"></div>
 
+<!-- วิธีใช้งาน (เปิดได้ทั้งก่อนและหลัง Login) -->
+<div id="help" class="overlay" hidden>
+  <div class="card help" role="dialog" aria-modal="true" aria-labelledby="help-t">
+    <div class="help-head"><h2 id="help-t">📖 วิธีใช้งาน</h2><button class="icon" id="help-x" aria-label="ปิด">✕</button></div>
+    <h3>1️⃣ เข้าสู่ระบบ</h3>
+    <ul>
+      <li>ใช้อีเมล + รหัสผ่านที่ทีมงานส่งให้ในห้องส่วนตัวของกิลด์</li>
+      <li>เข้าครั้งแรก ระบบให้ตั้งรหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</li>
+      <li>ติ๊ก <b>"จดจำฉันไว้ 30 วัน"</b> จะได้ไม่ต้อง Login บ่อย (เครื่องที่ใช้ร่วมกับคนอื่นไม่ต้องติ๊ก)</li>
+    </ul>
+    <h3>2️⃣ ส่ง Report</h3>
+    <ul>
+      <li>แท็บ <b>ส่ง Report</b> → เลือก Mission → วางลิงก์หลักฐาน <b>1 กล่อง = 1 ลิงก์</b> → กดส่ง</li>
+      <li>หลายลิงก์: กด <b>＋ เพิ่มลิงก์</b> · วางหลายลิงก์ในกล่องเดียวระบบแยกให้เอง · หรือ <b>📂 นำเข้าจากไฟล์</b> (.txt .csv .xlsx)</li>
+      <li>โพสต์ต้องเป็น <b>สาธารณะ</b> และติด Hashtag ตามกติกาของเกม</li>
+      <li>1 ลิงก์ส่งได้ 1 ครั้ง · แต่ละ Mission มีจำนวนสูงสุดต่อเดือน (ดูในรายละเอียด Mission)</li>
+    </ul>
+    <h3>3️⃣ ดูคะแนน</h3>
+    <ul>
+      <li>แท็บ <b>คะแนน</b> → คะแนนเดือนนี้ · สะสมทั้งปี · อีกกี่คะแนนถึง Rank S / SS</li>
+      <li>แท็บ <b>ประวัติ</b> → 🟡 รอตรวจ · 🟢 อนุมัติ · 🔴 ปฏิเสธ (มีเหตุผลบอก แก้แล้วส่งใหม่ได้)</li>
+      <li>คะแนนนับเมื่อทีมงาน <b>อนุมัติ</b> แล้วเท่านั้น · นับรอบวันที่ 1 – สิ้นเดือน</li>
+    </ul>
+    <h3>❓ ลืมรหัส / เข้าไม่ได้</h3>
+    <ul><li>แจ้งทีมงานในห้องส่วนตัวของกิลด์ ทีมงานจะรีเซ็ตรหัสให้</li></ul>
+    <p class="note muted">💡 เพิ่มเว็บนี้ลงหน้าจอหลักมือถือได้: Android ⋮ → เพิ่มลงในหน้าจอหลัก · iPhone ปุ่มแชร์ → เพิ่มไปยังหน้าจอโฮม</p>
+  </div>
+</div>
+
 <!-- Login -->
 <section id="v-login" class="view center">
   <form class="card narrow" id="f-login">
@@ -33,6 +62,7 @@
     <p class="note muted" style="margin-top:2px">ถ้าเป็นเครื่องที่ใช้ร่วมกับคนอื่น ไม่ต้องติ๊ก</p>
     <button class="btn" type="submit">เข้าสู่ระบบ</button>
     <p class="note muted">ลืมรหัสผ่าน? ติดต่อทีมงานผ่าน Discord เพื่อรีเซ็ต</p>
+    <p class="note"><a href="#" class="open-help">📖 วิธีใช้งาน</a></p>
   </form>
 </section>
 
@@ -66,6 +96,7 @@
       <button class="tab" data-p="hist">ประวัติ</button>
     </nav>
     <div class="menu">
+      <button class="icon open-help" title="วิธีใช้งาน" aria-label="วิธีใช้งาน">❓</button>
       <button class="icon" id="b-theme" title="สลับโหมดมืด" aria-label="สลับโหมดมืด">🌙</button>
       <button class="icon" id="b-pass" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน">🔑</button>
       <button class="icon" id="b-out" title="ออกจากระบบ" aria-label="ออกจากระบบ">⎋</button>

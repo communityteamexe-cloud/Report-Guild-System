@@ -622,6 +622,13 @@
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
     $('b-out').onclick = () => logout(false);
+    // วิธีใช้งาน: ปุ่ม ❓ / ลิงก์ในหน้า Login · ปิดด้วย ✕ · คลิกนอกกล่อง · Esc
+    const help = $('help');
+    const closeHelp = () => { help.hidden = true; };
+    document.querySelectorAll('.open-help').forEach((b) => b.addEventListener('click', (ev) => { ev.preventDefault(); help.hidden = false; $('help-x').focus(); }));
+    $('help-x').onclick = closeHelp;
+    help.addEventListener('click', (ev) => { if (ev.target === help) closeHelp(); });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !help.hidden) closeHelp(); });
     $('b-theme').onclick = () => {
       const t = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
       store.set('rgs_theme', t); applyTheme(t);
