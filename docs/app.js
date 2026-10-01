@@ -220,12 +220,158 @@
   }
 
   function switchPage(p, skipLoad) {
+    const cur = document.querySelector('.page.on');
+    if (cur && cur.id === 'p-mem' && p !== 'mem' && state.memDirty && !confirm('รายชื่อสมาชิกยังไม่ได้บันทึก — ออกจากหน้านี้เลยไหม?')) return;
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.p === p));
     document.querySelectorAll('.page').forEach((x) => x.classList.toggle('on', x.id === 'p-' + p));
     if (skipLoad) return;
     if (p === 'dash') loadDash();
     if (p === 'hist') loadHist();
     if (p === 'send') loadMissions();
+    if (p === 'mem' && !state.memDirty) loadMembers();
+  }
+
+  // ---------- สมาชิกกิลด์ ----------
+  const ROLE_TH = { leader: '👑 หัวหน้า', deputy: '⭐ รอง', member: 'สมาชิก' };
+
+  async function loadMembers() {
+    $('m-body').innerHTML = '<div class="empty">กำลังโหลดรายชื่อ…</div>';
+    try {
+      const d = await api('members');
+      state.memMeta = d;
+      state.members = d.members.map((m) => Object.assign({}, m));
+      setMemDirty(false);
+      renderMembers();
+    } catch (err) { $('m-body').innerHTML = `<div class="empty">โหลดไม่สำเร็จ: ${esc(err.message)}</div>`; }
+  }
+
+  function setMemDirty(on) {
+    state.memDirty = on;
+    $('m-dirty').textContent = on ? '● มีการแก้ไขที่ยังไม่บันทึก' : '';
+    $('m-save').disabled = !on;
+  }
+
+  /** วาดรายชื่อ (จอใหญ่ = แถวแบบตาราง · มือถือ = การ์ด) + สรุป + เตือน */
+  function renderMembers() {
+    const meta = state.memMeta || { levelMin: 0, max: 100 }, list = state.members || [], min = meta.levelMin;
+    const ids = {};
+    list.forEach((m) => { const k = String(m.inGameId || '').trim().toLowerCase(); if (k) ids[k] = (ids[k] || 0) + 1; });
+    const filled = list.filter((m) => m.charName || m.inGameId || m.level);
+    const ok = filled.filter((m) => Number(m.level) >= min).length;
+    $('m-sub').textContent = `${state.guild.gameName} · เกณฑ์รับ Benefit: Level ${min} ขึ้นไป · สูงสุด ${meta.max} คน`;
+    $('m-stats').innerHTML = `<div><b>${filled.length}</b><span>สมาชิก</span></div><div class="ok"><b>${ok}</b><span>ผ่านเกณฑ์ Lv ${min}</span></div>` +
+      `<div class="${filled.length - ok ? 'warn' : ''}"><b>${filled.length - ok}</b><span>ยังไม่ถึงเกณฑ์</span></div>` +
+      `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`;
+    const days = meta.updatedAt ? Math.floor((Date.now() - new Date(meta.updatedAt)) / 86400000) : null;
+    $('m-notice').innerHTML = !filled.length && !state.memDirty
+      ? '<div class="notice welcome"><div><b>👥 ยังไม่มีรายชื่อสมาชิก</b><br>เพิ่มทีละคน · วางจาก Excel (ชื่อตัวละคร | ID | Level) · หรือนำเข้าไฟล์ .csv / .xlsx</div></div>'
+      : (days !== null && days > 30 ? `<div class="notice warn"><div>⏰ ไม่ได้อัปเดตรายชื่อมา ${days} วัน — ตรวจสมาชิกเข้า-ออก และ Level ล่าสุดก่อนสิ้นเดือน</div></div>` : '');
+    $('m-body').innerHTML = (list.length ? '<div class="m-row m-head"><span>#</span><span>ชื่อตัวละคร *</span><span>ID ในเกม *</span><span>Level *</span><span>ตำแหน่ง</span><span>Discord</span><span></span></div>' : '') +
+      list.map((m, i) => {
+        const lv = Number(m.level) || 0, pass = lv >= min, dup = ids[String(m.inGameId || '').trim().toLowerCase()] > 1;
+        const pct = min ? Math.min(100, Math.round((lv / min) * 100)) : 100;
+        return `<div class="m-row${dup ? ' dup' : ''}" data-i="${i}">
+          <span class="n">${i + 1}</span>
+          <label><small>ชื่อตัวละคร *</small><input data-f="charName" maxlength="60" value="${esc(m.charName)}" placeholder="ชื่อตัวละคร"></label>
+          <label><small>ID ในเกม *</small><input data-f="inGameId" maxlength="40" value="${esc(m.inGameId)}" placeholder="ID"${dup ? ' title="ID ซ้ำ"' : ''}></label>
+          <label class="lv"><small>Level *</small><input data-f="level" type="number" min="1" max="9999" inputmode="numeric" value="${m.level ? esc(m.level) : ''}" placeholder="Lv">
+            <span class="lvbar ${pass ? 'pass' : ''}"><i style="width:${lv ? pct : 0}%"></i></span><em>${!lv ? '' : pass ? '✓ ผ่านเกณฑ์' : `อีก ${min - lv} Lv`}</em></label>
+          <label><small>ตำแหน่ง</small><select data-f="role">${Object.keys(ROLE_TH).map((r) => `<option value="${r}"${(m.role || 'member') === r ? ' selected' : ''}>${ROLE_TH[r]}</option>`).join('')}</select></label>
+          <label class="dc"><input data-f="discord" type="checkbox"${m.discord ? ' checked' : ''}><small>อยู่ใน Discord</small></label>
+          <button type="button" class="icon x" data-del="${i}" title="ลบสมาชิก" aria-label="ลบสมาชิก">×</button></div>`;
+      }).join('');
+  }
+
+  /** อ่านค่าจากช่องกรอกกลับเข้า state (เรียกก่อนวาดใหม่/บันทึก) */
+  function pullMembers() {
+    $('m-body').querySelectorAll('.m-row[data-i]').forEach((row) => {
+      const m = state.members[Number(row.dataset.i)]; if (!m) return;
+      row.querySelectorAll('[data-f]').forEach((el) => { m[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value.trim(); });
+    });
+  }
+
+  function addMembers(rows, focus) {
+    pullMembers();
+    const max = (state.memMeta && state.memMeta.max) || 100;
+    // ID ที่มีอยู่แล้วในรายชื่อ → อัปเดต Level/ชื่อ · ID ซ้ำกันเองในข้อมูลที่วาง → เพิ่มทั้งคู่ให้ขึ้นเตือนซ้ำ (ไม่ทับเงียบ)
+    const have = {};
+    state.members.forEach((m) => { if (m.inGameId) have[String(m.inGameId).toLowerCase()] = m; });
+    let added = 0, updated = 0, over = 0;
+    rows.forEach((r) => {
+      const k = String(r.inGameId || '').toLowerCase();
+      if (k && have[k]) { Object.assign(have[k], r); updated++; return; }
+      if (state.members.length >= max) { over++; return; }
+      state.members.push(Object.assign({ charName: '', inGameId: '', level: '', role: 'member', discord: false }, r));
+      added++;
+    });
+    setMemDirty(true); renderMembers();
+    if (focus) { const ins = $('m-body').querySelectorAll('.m-row[data-i] input[data-f="charName"]'); if (ins.length) ins[ins.length - 1].focus(); }
+    return { added, updated, over };
+  }
+
+  /**
+   * แปลงตารางเป็นรายชื่อ: คอลัมน์ ชื่อตัวละคร | ID | Level | ตำแหน่ง? | Discord?
+   * ข้ามแถวหัวตาราง (Level ไม่ใช่ตัวเลข) · คั่นด้วย Tab (Excel) หรือ , (CSV)
+   */
+  function parseMemberRows(rows) {
+    const roleOf = (s) => /หัวหน้า|leader|master/i.test(s) ? 'leader' : /รอง|deputy|sub/i.test(s) ? 'deputy' : 'member';
+    return rows.map((c) => c.map((x) => String(x == null ? '' : x).trim()))
+      .filter((c) => c.length >= 3 && c[0] && /^\d+$/.test(c[2].replace(/[^\d]/g, '') ) && c[2].replace(/[^\d]/g, ''))
+      .map((c) => ({ charName: c[0].slice(0, 60), inGameId: c[1].slice(0, 40), level: Number(c[2].replace(/[^\d]/g, '')),
+        role: roleOf(c[3] || ''), discord: /^(y|yes|true|1|✓|มี|ใช่|อยู่)/i.test(c[4] || '') }));
+  }
+  function splitTable(text) {
+    return String(text || '').split(/\r?\n/).filter((l) => l.trim()).map((l) => l.indexOf('\t') >= 0 ? l.split('\t') : l.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((s) => s.replace(/^"|"$/g, '')));
+  }
+  function memberImportResult(r, src) {
+    if (!r.added && !r.updated) return toast('ไม่พบรายชื่อที่อ่านได้ — ต้องมี 3 คอลัมน์: ชื่อตัวละคร | ID | Level', true);
+    toast(`${src}: เพิ่ม ${r.added} คน` + (r.updated ? ` · อัปเดต ${r.updated} คน (ID เดิม)` : '') + ' — กด 💾 บันทึกรายชื่อ');
+    if (r.over) toast(`⚠️ เกิน ${state.memMeta.max} คน — ข้าม ${r.over} คน`, true);
+  }
+
+  function openMemberPaste() {
+    const o = document.createElement('div');
+    o.className = 'overlay';
+    o.innerHTML = `<div class="card help" role="dialog" aria-modal="true"><div class="help-head"><h2>📋 วางรายชื่อจาก Excel</h2><button type="button" class="icon x" aria-label="ปิด">✕</button></div>
+      <p class="muted">Copy จาก Excel / Google Sheets มาวางได้เลย — เรียงคอลัมน์: <b>ชื่อตัวละคร · ID ในเกม · Level</b> · (ตำแหน่ง · Discord ไม่บังคับ) · มีแถวหัวตารางก็ได้</p>
+      <textarea rows="9" placeholder="Somchai&#9;10234&#9;55&#10;Nina&#9;10235&#9;42&#9;รอง"></textarea>
+      <div class="note" data-prev></div><button type="button" class="btn" data-ok>เพิ่มลงรายชื่อ</button></div>`;
+    const ta = o.querySelector('textarea'), prev = o.querySelector('[data-prev]');
+    ta.oninput = () => { prev.textContent = `อ่านได้ ${parseMemberRows(splitTable(ta.value)).length} คน`; };
+    const close = () => o.remove();
+    o.querySelector('.x').onclick = close;
+    o.onclick = (ev) => { if (ev.target === o) close(); };
+    o.querySelector('[data-ok]').onclick = () => { memberImportResult(addMembers(parseMemberRows(splitTable(ta.value))), 'วางจาก Excel'); close(); };
+    document.body.appendChild(o);
+    ta.focus();
+  }
+
+  async function importMemberFile(file) {
+    if (!file) return;
+    try {
+      let rows;
+      if (/\.(xlsx|xls)$/i.test(file.name)) {
+        const XLSX = await loadSheetJs();
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false });
+      } else rows = splitTable(await file.text());
+      memberImportResult(addMembers(parseMemberRows(rows)), `นำเข้า "${file.name}"`);
+    } catch (err) { toast(err.message, true); }
+    finally { $('m-file').value = ''; }
+  }
+
+  async function saveMembersNow() {
+    pullMembers();
+    const btn = $('m-save');
+    btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก…';
+    try {
+      const d = await api('saveMembers', { members: state.members });
+      state.memMeta = d;
+      state.members = d.members.map((m) => Object.assign({}, m));
+      setMemDirty(false); renderMembers();
+      toast(d.changes ? `✅ บันทึกแล้ว (${d.changes} รายการเปลี่ยนแปลง)` : '✅ บันทึกแล้ว ไม่มีอะไรเปลี่ยน');
+    } catch (err) { toast(err.message, true); setMemDirty(true); }
+    finally { btn.textContent = '💾 บันทึกรายชื่อ'; if (state.memDirty) btn.disabled = false; }
   }
 
   function startRefresh() {
@@ -887,7 +1033,7 @@
   // ---------- DEMO (ใช้เมื่อยังไม่ได้ใส่ API_URL) ----------
   const Demo = {
     guild: { email: 'phoenix.10234.z4@guild.exe', game: 'z4', gameName: 'Zone4 Extreme', nameTH: 'กิลด์ Phoenix', nameEN: 'phoenix', guildId: '10234', mustChange: true, active: true },
-    missions: [
+    missionList: [
       { id: 'z4-M1', group: 'basic', name: 'สร้าง Content ลงกลุ่ม Facebook Official', detail: 'Content ที่เกี่ยวข้องกับเกม · ใส่ Hashtag #รีวิวแฟชั่น #รีวิวเกม · จำกัด 1 Facebook = 10 Content / เดือน', points: 20, maxPerMonth: 10, maxScope: 'poster', cuteGuild: false },
       { id: 'z4-M2', group: 'basic', name: 'แชร์โพสต์กิจกรรม / โปรโมชั่น จาก Fanpage Official', detail: 'แชร์ภายใน 3 วันหลังโพสต์ · ตั้งเป็น Public · ใส่แคปชั่น + Hashtag', points: 10, maxPerMonth: 50, maxScope: 'guild', cuteGuild: false },
       { id: 'z4-M3', group: 'basic', name: 'รวมตี้ 8 คนขึ้นไป แช๊ะภาพประจำเดือน', detail: 'โพสต์รูปรวมตี้ลงกลุ่ม Facebook Official แบบสาธารณะ', points: 50, maxPerMonth: 4, maxScope: 'guild', cuteGuild: false },
@@ -903,9 +1049,18 @@
     login(b) { if (!b.email || !b.password) throw new Error('อีเมลหรือรหัสผ่านไม่ถูกต้อง'); return { token: 'demo', guild: Object.assign({}, this.guild) }; },
     changePassword(b) { if ((b.newPassword || '').length < 8) throw new Error('รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัว'); this.guild.mustChange = false; return true; },
     logout() { return true; },
-    missions() { return this.missions; },
+    memberList: [{ id: 'M1', charName: 'Somchai', inGameId: '10234', level: 55, role: 'leader', discord: true, eligible: true, updatedAt: new Date(Date.now() - 40 * 864e5).toISOString() },
+      { id: 'M2', charName: 'Nina', inGameId: '10235', level: 31, role: 'member', discord: false, eligible: false, updatedAt: new Date(Date.now() - 40 * 864e5).toISOString() }],
+    members() { const l = this.memberList; return { members: l, levelMin: 40, max: 100, count: l.length, eligible: l.filter((m) => m.level >= 40).length, updatedAt: l.reduce((a, m) => m.updatedAt > a ? m.updatedAt : a, '') }; },
+    saveMembers(b) {
+      const seen = {};
+      b.members.forEach((m, i) => { if (!m.charName && !m.inGameId && !m.level) return; if (!m.charName || !m.inGameId || !Number(m.level)) throw new Error('แถวที่ ' + (i + 1) + ': กรอกให้ครบ'); const k = m.inGameId.toLowerCase(); if (seen[k]) throw new Error('ID ซ้ำ: ' + m.inGameId); seen[k] = 1; });
+      this.memberList = b.members.filter((m) => m.charName).map((m) => Object.assign({}, m, { level: Number(m.level), eligible: Number(m.level) >= 40, updatedAt: new Date().toISOString() }));
+      return Object.assign(this.members(), { changes: this.memberList.length });
+    },
+    missions() { return this.missionList; },
     submit(b) {
-      const m = this.missions.find((x) => x.id === b.missionId);
+      const m = this.missionList.find((x) => x.id === b.missionId);
       if (!m) throw new Error('กรุณาเลือก Mission');
       if (m.maxScope === 'poster' && !b.poster) throw new Error('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์');
       const accepted = [], skipped = [];
@@ -930,7 +1085,7 @@
       const sc = monthly[b.month - 1];
       return { year: b.year, month: b.month, monthScore: sc, yearScore: monthly.reduce((a, c) => a + c, 0), monthly: monthly,
         rank: sc >= 200 ? 'SS' : sc >= 100 ? 'S' : '', rule: { ss: 200, s: 100 }, pending: this.reports.length, rejected: 1,
-        perMission: this.missions.map((m, i) => ({ id: m.id, name: m.name, points: m.points, maxPerMonth: m.maxPerMonth, maxScope: m.maxScope, used: [1, 0, 1, 0, 0, 0][i], score: [20, 0, 50, 0, 0, 0][i] })),
+        perMission: this.missionList.map((m, i) => ({ id: m.id, name: m.name, points: m.points, maxPerMonth: m.maxPerMonth, maxScope: m.maxScope, used: [1, 0, 1, 0, 0, 0][i], score: [20, 0, 50, 0, 0, 0][i] })),
         cuteGuild: null, updatedAt: new Date().toISOString() };
     }
   };
@@ -957,6 +1112,24 @@
       addImages(files.filter((f) => /^image\//.test(f.type)));
       files.filter((f) => !/^image\//.test(f.type)).forEach((f) => importFile(f));
     });
+    // สมาชิกกิลด์
+    $('m-add').onclick = () => addMembers([{}], true);
+    $('m-paste').onclick = openMemberPaste;
+    $('m-import').onclick = () => $('m-file').click();
+    $('m-file').addEventListener('change', () => importMemberFile($('m-file').files[0]));
+    $('m-save').onclick = saveMembersNow;
+    $('m-body').addEventListener('input', () => setMemDirty(true));
+    // ออกจากช่อง Level/ID → วาดใหม่ให้แถบ Level และเตือน ID ซ้ำอัปเดต
+    $('m-body').addEventListener('change', (ev) => { if (ev.target.dataset.f) { pullMembers(); setMemDirty(true); renderMembers(); } });
+    $('m-body').addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-del]'); if (!b) return;
+      pullMembers();
+      const m = state.members[Number(b.dataset.del)];
+      if (m && (m.charName || m.inGameId) && !confirm(`ลบ ${m.charName || m.inGameId} ออกจากรายชื่อ?`)) return;
+      state.members.splice(Number(b.dataset.del), 1);
+      setMemDirty(true); renderMembers();
+    });
+    window.addEventListener('beforeunload', (ev) => { if (state.memDirty) { ev.preventDefault(); ev.returnValue = ''; } });
     $('s-addimg').onclick = () => $('s-img').click();
     $('s-img').addEventListener('change', () => addImages($('s-img').files));
     // แคปหน้าจอแล้วกด Ctrl+V ที่ไหนก็ได้ในหน้าส่ง Report → เพิ่มเป็นกล่องรูป

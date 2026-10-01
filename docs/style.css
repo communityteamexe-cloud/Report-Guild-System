@@ -235,3 +235,37 @@ th{font-size:12px;color:var(--muted-foreground);font-weight:500}
 /* ลดการเคลื่อนไหว */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media (prefers-reduced-motion:reduce){.done-card circle,.done-card path{stroke-dashoffset:0!important}.heat i,.bars div{opacity:1;transform:none}}
+/* ===== สมาชิกกิลด์ ===== */
+.m-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:4px 0 14px}
+.m-stats div{background:var(--muted);border-radius:var(--radius);padding:10px 12px;display:flex;flex-direction:column}
+.m-stats b{font-size:20px;font-variant-numeric:tabular-nums}.m-stats span{font-size:12px;color:var(--muted-foreground)}
+.m-stats .ok b{color:var(--ok)}.m-stats .warn b{color:var(--warn)}
+.m-list{display:flex;flex-direction:column;gap:6px}
+.m-row{display:grid;grid-template-columns:28px 1.4fr 1fr 1.2fr 1fr 96px 34px;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--border)}
+.m-row.m-head{font-size:12px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border)}
+.m-row .n{font-size:12px;color:var(--muted-foreground);text-align:right}
+.m-row label{display:block;margin:0;font-weight:400}
+.m-row small{display:none}
+.m-row input,.m-row select{padding:7px 9px}
+.m-row.dup input[data-f="inGameId"]{border-color:var(--warn);background:color-mix(in oklch,var(--warn) 10%,var(--background))}
+.m-row .lv{position:relative}
+.lvbar{display:block;height:4px;border-radius:99px;background:var(--muted);margin-top:4px;overflow:hidden}
+.lvbar i{display:block;height:100%;background:var(--warn);border-radius:99px;transition:width .4s}
+.lvbar.pass i{background:var(--ok)}
+.m-row .lv em{font-style:normal;font-size:11px;color:var(--muted-foreground)}
+.m-row .dc{display:flex;align-items:center;gap:6px;justify-content:center}
+.m-row .dc input{width:16px;height:16px;accent-color:var(--primary)}
+.m-save{display:flex;align-items:center;justify-content:flex-end;gap:12px;position:sticky;bottom:0;background:var(--card);padding:12px 0 4px;margin-top:6px}
+.m-save .btn{width:auto;margin:0}
+.m-save .muted{color:var(--warn)}
+@media (max-width:760px){
+  .m-stats{grid-template-columns:1fr 1fr}
+  .m-row.m-head{display:none}
+  .m-row{grid-template-columns:1fr 1fr;border:1px solid var(--border);border-radius:12px;padding:10px 12px;position:relative;background:var(--card)}
+  .m-row .n{position:absolute;top:8px;right:40px}
+  .m-row small{display:block;font-size:11px;color:var(--muted-foreground);margin-bottom:3px}
+  .m-row label:nth-of-type(1){grid-column:1 / -1;padding-right:56px}
+  .m-row .x{position:absolute;top:4px;right:4px}
+  .m-row .dc{justify-content:flex-start}
+  .m-save{bottom:72px}
+}

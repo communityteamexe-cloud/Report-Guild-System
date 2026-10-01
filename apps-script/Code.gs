@@ -26,8 +26,15 @@ const HEAD = {
   Missions:  ['MissionID', 'Game', 'Group', 'Name', 'Detail', 'Points', 'MaxPerMonth', 'MaxScope', 'StartYM', 'EndYM', 'Active', 'CuteGuild'],
   RankRules: ['Game', 'FromYear', 'SS', 'S'],
   Reports:   ['ReportID', 'CreatedAt', 'YM', 'Email', 'Game', 'GuildNameTH', 'MissionID', 'MissionName', 'Points',
-              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash']
+              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash'],
+  Members:   ['MemberID', 'Email', 'Game', 'GuildID', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'UpdatedAt'],
+  MemberLog: ['At', 'Email', 'Action', 'CharName', 'InGameID', 'Detail'],
+  MemberSnapshots: ['YM', 'SnapshotAt', 'Email', 'Game', 'GuildNameTH', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'Eligible']
 };
+// เกณฑ์ Level ขั้นต่ำที่ได้รับ Benefit (ชีต 09) · สมาชิกสูงสุดต่อกิลด์
+const LEVEL_MIN = { z4: 40, tosm: 100, '9yin': 25 };
+const MAX_MEMBERS = 100;
+const MEMBER_ROLES = { leader: 'หัวหน้า', deputy: 'รอง', member: 'สมาชิก' };
 const STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' };
 
 // ===================================================================
@@ -104,11 +111,12 @@ function seedRankRules_() {
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     const h = t.getHandlerFunction();
-    if (h === 'backupDatabase' || h === 'keepWarm') ScriptApp.deleteTrigger(t);
+    if (h === 'backupDatabase' || h === 'keepWarm' || h === 'snapshotMembers') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('backupDatabase').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(2).create();
   ScriptApp.newTrigger('keepWarm').timeBased().everyMinutes(10).create();
-  Logger.log('✅ ติดตั้ง Trigger แล้ว: สำรองข้อมูลทุกวันจันทร์ 02:00 · ปลุกระบบทุก 10 นาที (07:00–23:59)');
+  ScriptApp.newTrigger('snapshotMembers').timeBased().everyDays(1).atHour(23).nearMinute(30).create();
+  Logger.log('✅ ติดตั้ง Trigger แล้ว: สำรองข้อมูลทุกวันจันทร์ 02:00 · ปลุกระบบทุก 10 นาที (07:00–23:59) · ล็อกรายชื่อสมาชิกวันสุดท้ายของเดือน 23:30');
 }
 
 /**
@@ -210,7 +218,9 @@ const GUILD_ACTIONS = {
   missions: function (g, r) { return missionsFor_(g.Game, ymOf_(r.year, r.month)); },
   submit: function (g, r) { return submitReport_(g, r); },
   dashboard: function (g, r) { return dashboard_(g, Number(r.year), Number(r.month)); },
-  history: function (g, r) { return history_(g, Number(r.year), Number(r.month)); }
+  history: function (g, r) { return history_(g, Number(r.year), Number(r.month)); },
+  members: function (g) { return membersOf_(g); },
+  saveMembers: function (g, r) { return saveMembers_(g, r.members); }
 };
 
 const ADMIN_ACTIONS = {
@@ -218,14 +228,17 @@ const ADMIN_ACTIONS = {
   adminCreateGuild: function (r) { return createGuild_(r); },
   adminResetPassword: function (r) { return resetPassword_(r.email); },
   adminSetGuildActive: function (r) { return setGuildField_(r.email, 'Active', !!r.active); },
-  adminListReports: function (r) { return listReports_(Number(r.year), r.month ? Number(r.month) : null, r.game, r.status); },
+  adminListReports: function (r) { return withDupFlags_(listReports_(Number(r.year), r.month ? Number(r.month) : null, r.game, r.status), Number(r.year)); },
   adminReview: function (r) { return reviewReport_(r); },
   adminReviewMany: function (r) { return reviewMany_(r); },
   adminListMissions: function (r) { return listMissions_(r.game); },
   adminUpsertMission: function (r) { return upsertMission_(r.mission); },
   adminListRankRules: function () { return readRows_('RankRules'); },
   adminSetRankRule: function (r) { return setRankRule_(r.game, Number(r.fromYear), Number(r.ss), Number(r.s)); },
-  adminLeaderboard: function (r) { return leaderboard_(r.game, Number(r.year), r.month ? Number(r.month) : null); }
+  adminLeaderboard: function (r) { return leaderboard_(r.game, Number(r.year), r.month ? Number(r.month) : null); },
+  adminListMembers: function (r) { return adminMembers_(r.game, r.email); },
+  adminMemberLog: function (r) { return memberLog_(r.email, Number(r.limit) || 200); },
+  adminMemberSnapshot: function (r) { return memberSnapshot_(r.email, ymOf_(r.year, r.month)); }
 };
 
 // ===================================================================
@@ -714,6 +727,178 @@ function reportOut_(x) {
 }
 
 // ===================================================================
+// Members — รายชื่อสมาชิกกิลด์ (กิลด์แก้เอง · ทีมดูใน CTM · ล็อก Snapshot สิ้นเดือน)
+// ===================================================================
+
+function memberOut_(x, game) {
+  const lv = Number(x.Level) || 0;
+  return { id: String(x.MemberID), charName: String(x.CharName || ''), inGameId: String(x.InGameID || '').replace(/^'/, ''),
+    level: lv, role: x.Role || 'member', discord: truthy_(x.Discord), eligible: lv >= (LEVEL_MIN[game] || 0),
+    updatedAt: x.UpdatedAt instanceof Date ? x.UpdatedAt.toISOString() : String(x.UpdatedAt || '') };
+}
+
+/** รายชื่อของกิลด์นี้ + สรุป (ใช้ทั้งเว็บกิลด์และ CTM) */
+function membersOf_(g) {
+  const list = readRows_('Members').filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
+  const last = list.reduce(function (m, x) { return x.updatedAt > m ? x.updatedAt : m; }, '');
+  return { members: list, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
+    count: list.length, eligible: list.filter(function (x) { return x.eligible; }).length, updatedAt: last };
+}
+
+/**
+ * บันทึกรายชื่อทั้งชุดของกิลด์ (แทนที่ของเดิม) · เทียบของเดิมเพื่อเขียนประวัติ เพิ่ม/ลบ/แก้
+ * ตรวจ: ชื่อตัวละคร + ID ในเกม + Level บังคับ · ID ซ้ำในกิลด์ไม่ได้ · ไม่เกิน MAX_MEMBERS
+ */
+function saveMembers_(g, input) {
+  if (!Array.isArray(input)) throw new Error('ข้อมูลสมาชิกไม่ถูกต้อง');
+  if (input.length > MAX_MEMBERS) throw new Error('สมาชิกได้สูงสุด ' + MAX_MEMBERS + ' คนต่อกิลด์');
+  const seen = {}, clean = [];
+  input.forEach(function (m, i) {
+    const n = i + 1;
+    const charName = String(m && m.charName || '').trim().slice(0, 60);
+    const id = String(m && m.inGameId || '').trim().slice(0, 40);
+    const lv = Number(m && m.level);
+    if (!charName && !id && !(m && m.level)) return;              // แถวว่าง → ข้าม
+    if (!charName) throw new Error('แถวที่ ' + n + ': กรอกชื่อตัวละคร');
+    if (!id) throw new Error('แถวที่ ' + n + ' (' + charName + '): กรอก ID ในเกม');
+    if (!(lv >= 1 && lv <= 9999) || Math.floor(lv) !== lv) throw new Error('แถวที่ ' + n + ' (' + charName + '): Level ต้องเป็นตัวเลข 1–9999');
+    const key = id.toLowerCase();
+    if (seen[key]) throw new Error('ID ในเกม "' + id + '" ซ้ำกัน (แถว ' + seen[key] + ' และ ' + n + ')');
+    seen[key] = n;
+    clean.push({ id: String(m.id || ''), charName: charName, inGameId: id, level: lv,
+      role: MEMBER_ROLES[m.role] ? m.role : 'member', discord: !!m.discord });
+  });
+
+  return withLock_(function () {
+    const sh = getSheet_('Members');
+    const data = sh.getDataRange().getValues();
+    const head = data[0], col = indexMap_(head);
+    const others = [], old = {};
+    data.slice(1).forEach(function (r) {
+      if (r.join('') === '') return;
+      if (r[col.Email] === g.Email) old[String(r[col.InGameID]).replace(/^'/, '').toLowerCase()] = r; else others.push(r);
+    });
+    const now = new Date(), logs = [];
+    const rows = clean.map(function (m) {
+      const prev = old[m.inGameId.toLowerCase()];
+      if (!prev) logs.push(['เพิ่ม', m.charName, m.inGameId, 'Lv ' + m.level]);
+      else {
+        const diff = [];
+        if (String(prev[col.CharName]) !== m.charName) diff.push('ชื่อ ' + prev[col.CharName] + ' → ' + m.charName);
+        if (Number(prev[col.Level]) !== m.level) diff.push('Lv ' + prev[col.Level] + ' → ' + m.level);
+        if (String(prev[col.Role] || 'member') !== m.role) diff.push('ตำแหน่ง ' + (MEMBER_ROLES[prev[col.Role]] || 'สมาชิก') + ' → ' + MEMBER_ROLES[m.role]);
+        if (diff.length) logs.push(['แก้ไข', m.charName, m.inGameId, diff.join(' · ')]);
+        delete old[m.inGameId.toLowerCase()];
+      }
+      const keep = prev && !logs.some(function (l) { return l[2] === m.inGameId; });
+      const o = { MemberID: prev ? prev[col.MemberID] : 'M' + Utilities.getUuid().slice(0, 8), Email: g.Email, Game: g.Game,
+        GuildID: "'" + String(g.GuildID).replace(/^'/, ''), CharName: m.charName, InGameID: "'" + m.inGameId, Level: m.level,
+        Role: m.role, Discord: m.discord, UpdatedAt: keep ? prev[col.UpdatedAt] : now };
+      return head.map(function (h) { return o[h] === undefined ? '' : o[h]; });
+    });
+    Object.keys(old).forEach(function (k) { const r = old[k]; logs.push(['ลบ', r[col.CharName], String(r[col.InGameID]).replace(/^'/, ''), 'Lv ' + r[col.Level]]); });
+
+    const all = others.concat(rows);
+    sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), head.length).clearContent();
+    if (all.length) sh.getRange(2, 1, all.length, head.length).setValues(all);
+    if (logs.length) appendRows_('MemberLog', logs.map(function (l) {
+      return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: "'" + l[2], Detail: l[3] };
+    }));
+    return Object.assign(membersOf_(g), { changes: logs.length });
+  });
+}
+
+/** CTM: สมาชิกทุกกิลด์ (หรือกิลด์เดียว) + เตือน ID เดียวกันอยู่หลายกิลด์ในเกมเดียวกัน */
+function adminMembers_(game, email) {
+  const guilds = {};
+  readRows_('Guilds').forEach(function (g) { guilds[g.Email] = g; });
+  const rows = readRows_('Members').filter(function (x) { return (!game || x.Game === game); });
+  const owners = {};
+  rows.forEach(function (x) {
+    const k = x.Game + '|' + String(x.InGameID).replace(/^'/, '').toLowerCase();
+    (owners[k] = owners[k] || []).push(x.Email);
+  });
+  return rows.filter(function (x) { return !email || x.Email === email; }).map(function (x) {
+    const o = memberOut_(x, x.Game), g = guilds[x.Email] || {};
+    const k = x.Game + '|' + o.inGameId.toLowerCase();
+    o.email = x.Email; o.game = x.Game; o.guild = g.NameTH || x.Email;
+    o.alsoIn = (owners[k] || []).filter(function (e) { return e !== x.Email; }).map(function (e) { return (guilds[e] || {}).NameTH || e; });
+    return o;
+  });
+}
+
+function memberLog_(email, limit) {
+  return readRows_('MemberLog').filter(function (x) { return !email || x.Email === email; }).slice(-limit).reverse().map(function (x) {
+    return { at: x.At instanceof Date ? x.At.toISOString() : String(x.At), email: x.Email, action: x.Action,
+      charName: x.CharName, inGameId: String(x.InGameID).replace(/^'/, ''), detail: x.Detail };
+  });
+}
+
+/** รายชื่อที่ล็อกไว้ของเดือนนั้น (ใช้แจกรางวัล) */
+function memberSnapshot_(email, ym) {
+  const y = ym.slice(0, 4), sh = ss_().getSheetByName('MemberSnapshots_' + y);
+  if (!sh) return [];
+  return rowsToObjects_(sh.getDataRange().getValues()).filter(function (x) {
+    return ymStr_(x.YM) === ym && (!email || x.Email === email);
+  }).map(function (x) {
+    return { email: x.Email, game: x.Game, guild: x.GuildNameTH, charName: x.CharName, inGameId: String(x.InGameID).replace(/^'/, ''),
+      level: Number(x.Level) || 0, role: x.Role, discord: truthy_(x.Discord), eligible: truthy_(x.Eligible),
+      snapshotAt: x.SnapshotAt instanceof Date ? x.SnapshotAt.toISOString() : String(x.SnapshotAt) };
+  });
+}
+
+/**
+ * ล็อกรายชื่อสมาชิกของเดือน — Trigger ทุกวัน 23:30 ทำงานจริงเฉพาะวันสุดท้ายของเดือน
+ * รันเองจาก editor ได้ (force) · รันซ้ำเดือนเดิม = แทนที่ Snapshot เดิมของเดือนนั้น
+ */
+function snapshotMembers(e) {
+  const now = new Date();
+  const isLastDay = Utilities.formatDate(new Date(now.getTime() + 86400000), 'Asia/Bangkok', 'd') === '1';
+  if (!isLastDay && e !== true) return;                   // Trigger ส่ง event object มา → ทำเฉพาะวันสุดท้าย
+  const ym = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
+  const guilds = {};
+  readRows_('Guilds').forEach(function (g) { guilds[g.Email] = g; });
+  const rows = readRows_('Members').map(function (x) {
+    const o = memberOut_(x, x.Game);
+    return { YM: "'" + ym, SnapshotAt: now, Email: x.Email, Game: x.Game, GuildNameTH: (guilds[x.Email] || {}).NameTH || '',
+      CharName: o.charName, InGameID: "'" + o.inGameId, Level: o.level, Role: o.role, Discord: o.discord, Eligible: o.eligible };
+  });
+  withLock_(function () {
+    const name = 'MemberSnapshots_' + ym.slice(0, 4), sh = getSheet_(name);
+    const data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
+    const keep = data.slice(1).filter(function (r) { return r.join('') !== '' && ymStr_(r[col.YM]) !== ym; });
+    sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), data[0].length).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, data[0].length).setValues(keep);
+    if (rows.length) appendRows_(name, rows);
+  });
+  Logger.log('📸 ล็อกรายชื่อสมาชิก ' + ym + ': ' + rows.length + ' คน');
+}
+
+/** รันเองจาก editor: ล็อกรายชื่อเดือนนี้ทันที (ไม่ต้องรอวันสุดท้าย) */
+function snapshotMembersNow() { snapshotMembers(true); }
+
+// ===================================================================
+// ลิงก์ / รูปซ้ำข้ามกิลด์ หรือข้ามเดือน (เตือนใน CTM · ไม่บล็อก)
+// ===================================================================
+
+function withDupFlags_(list, year) {
+  const all = readReports_(year).concat(readReports_(year - 1));
+  const idx = {};
+  all.forEach(function (x) {
+    if (x.Status === STATUS.REJECTED) return;
+    const k = x.Hash ? 'img:' + x.Hash : String(x.Link || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
+    if (!k) return;
+    (idx[k] = idx[k] || []).push({ id: x.ReportID, email: x.Email, guild: x.GuildNameTH, ym: ymStr_(x.YM) });
+  });
+  return list.map(function (r) {
+    const k = r.hash ? 'img:' + r.hash : String(r.link || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
+    const others = (idx[k] || []).filter(function (o) { return o.id !== r.id && (o.email !== r.email || o.ym !== r.ym); });
+    if (others.length) r.dupOf = others.slice(0, 3).map(function (o) { return { guild: o.guild, ym: o.ym, sameGuild: o.email === r.email }; });
+    return r;
+  });
+}
+
+// ===================================================================
 // Dashboard & Leaderboard
 // ===================================================================
 
@@ -867,7 +1052,7 @@ function getSheet_(name) {
   let sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
-    const head = HEAD[name.indexOf('Reports_') === 0 ? 'Reports' : name];
+    const head = HEAD[name.indexOf('Reports_') === 0 ? 'Reports' : name.indexOf('MemberSnapshots_') === 0 ? 'MemberSnapshots' : name];
     sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
     sh.setFrozenRows(1);
     MEMO_.heads[name] = head.slice();

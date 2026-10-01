@@ -37,6 +37,11 @@
       <li>โพสต์ต้องเป็น <b>สาธารณะ</b> และติด Hashtag ตามกติกาของเกม</li>
       <li>1 ลิงก์ส่งได้ 1 ครั้ง · แต่ละ Mission มีจำนวนสูงสุดต่อเดือน (ดูในรายละเอียด Mission)</li>
     </ul>
+    <h3>👥 รายชื่อสมาชิก</h3>
+    <ul>
+      <li>แท็บ <b>สมาชิก</b> → เพิ่มทีละคน · <b>วางจาก Excel</b> (ชื่อตัวละคร | ID ในเกม | Level) · หรือนำเข้าไฟล์ .csv / .xlsx → กด <b>💾 บันทึกรายชื่อ</b></li>
+      <li>ได้รับ Benefit เฉพาะสมาชิกที่ Level ถึงเกณฑ์ (แถบเขียว = ผ่าน) · ทีมงานล็อกรายชื่อทุกวันสุดท้ายของเดือนเพื่อแจกรางวัล</li>
+    </ul>
     <h3>3️⃣ ดูคะแนน</h3>
     <ul>
       <li>แท็บ <b>คะแนน</b> → คะแนนเดือนนี้ · สะสมทั้งปี · อีกกี่คะแนนถึง Rank S / SS</li>
@@ -95,6 +100,7 @@
       <button class="tab on" data-p="dash"><i>📊</i> คะแนน</button>
       <button class="tab" data-p="send"><i>📤</i> ส่ง Report</button>
       <button class="tab" data-p="hist"><i>🕘</i> ประวัติ</button>
+      <button class="tab" data-p="mem"><i>👥</i> สมาชิก</button>
     </nav>
     <div class="menu">
       <button class="icon lbl open-help" title="วิธีใช้งาน">❓<span>วิธีใช้</span></button>
@@ -188,6 +194,26 @@
           <h3>รายละเอียด Mission</h3>
           <div id="s-detail" class="muted">เลือก Mission เพื่อดูรายละเอียด</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Members -->
+    <div class="page" id="p-mem">
+      <div class="card">
+        <div class="head">
+          <div><h2>รายชื่อสมาชิกกิลด์</h2><p class="muted" id="m-sub" style="margin:2px 0 0"></p></div>
+          <div class="row-btns">
+            <button type="button" class="btn ghost add" id="m-add">＋ เพิ่มสมาชิก</button>
+            <button type="button" class="btn ghost add" id="m-paste">📋 วางจาก Excel</button>
+            <button type="button" class="btn ghost add" id="m-import">📂 นำเข้าไฟล์</button>
+            <input type="file" id="m-file" accept=".csv,.txt,.xlsx,.xls" hidden>
+          </div>
+        </div>
+        <div id="m-notice"></div>
+        <div class="m-stats" id="m-stats"></div>
+        <div class="m-list" id="m-body"></div>
+        <div class="m-save"><span class="muted" id="m-dirty"></span><button type="button" class="btn" id="m-save">💾 บันทึกรายชื่อ</button></div>
+        <p class="note muted">ทีมงานล็อกรายชื่อทุกวันสุดท้ายของเดือน (23:30) เพื่อใช้แจกรางวัล · ต้องมีชื่อตัวละคร ID ในเกม และ Level ครบ · แก้ไขทุกครั้งมีบันทึกประวัติ</p>
       </div>
     </div>
 
