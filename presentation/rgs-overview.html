@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--p:oklch(0.505 0.213 27.518);--c1:oklch(0.808 0.114 19.571);--c2:oklch(0.637 0.237 25.331);--c4:oklch(0.505 0.213 27.518);--c5:oklch(0.444 0.177 26.899);
+  --fg:#18181b;--mu:#71717a;--bd:#e4e4e7;--bg:#f6f5f4;--ok:#16a34a;--gold:#f5b301}
+*{box-sizing:border-box;margin:0}
+body{width:1920px;height:1080px;font-family:Inter,"Noto Sans Thai",sans-serif;color:var(--fg);background:var(--bg);overflow:hidden}
+.wrap{display:grid;grid-template-columns:560px 1fr;height:100%}
+/* ซ้าย */
+.left{background:linear-gradient(160deg,var(--c2),var(--c4) 55%,var(--c5));color:#fff;padding:64px 56px;position:relative;overflow:hidden;display:flex;flex-direction:column}
+.left::after{content:"⚔️";position:absolute;right:-60px;bottom:-80px;font-size:420px;opacity:.08}
+.tag{display:inline-block;background:rgb(255 255 255 / .16);border:1px solid rgb(255 255 255 / .3);border-radius:99px;padding:6px 16px;font-size:18px;font-weight:600;width:fit-content}
+h1{font-size:68px;font-weight:900;line-height:1.02;margin:22px 0 14px;letter-spacing:-1px}
+.sub{font-size:24px;line-height:1.5;opacity:.92}
+.games{display:flex;gap:10px;flex-wrap:wrap;margin:26px 0 30px}
+.games span{background:#fff;color:var(--c4);font-weight:700;font-size:18px;border-radius:10px;padding:8px 14px}
+.why h3{font-size:22px;margin-bottom:12px;opacity:.85;font-weight:700}
+.why li{list-style:none;font-size:21px;line-height:1.45;margin-bottom:12px;display:flex;gap:12px}
+.why li b{font-weight:800}
+.stats{margin-top:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.stats div{background:rgb(255 255 255 / .14);border-radius:14px;padding:14px 8px;text-align:center}
+.stats b{display:block;font-size:30px;font-weight:900}.stats span{font-size:14.5px;opacity:.9}
+/* ขวา */
+.right{padding:48px 56px 40px;display:flex;flex-direction:column;gap:26px}
+.sec-t{font-size:15px;font-weight:800;letter-spacing:2px;color:var(--p);text-transform:uppercase;margin-bottom:12px}
+/* Flow */
+.flow{display:grid;grid-template-columns:1fr 70px 1fr 70px 1fr;align-items:stretch}
+.node{background:#fff;border:1px solid var(--bd);border-radius:18px;padding:20px 22px;box-shadow:0 6px 20px rgb(0 0 0 / .05)}
+.node .ic{font-size:40px}.node h4{font-size:24px;margin:8px 0 4px}.node p{font-size:16.5px;color:var(--mu);line-height:1.45}
+.node.mid{background:linear-gradient(160deg,#fff,#fff4f2);border-color:var(--c1)}
+.arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--p);font-size:13px;font-weight:700;text-align:center;gap:2px}
+.arrow i{font-style:normal;font-size:34px;line-height:1}
+/* Steps */
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:22px;flex:1}
+.card{background:#fff;border:1px solid var(--bd);border-radius:18px;padding:26px 28px;box-shadow:0 6px 20px rgb(0 0 0 / .05);display:flex;flex-direction:column}
+.steps{flex:1;display:flex;flex-direction:column;justify-content:space-evenly}
+.card h3{font-size:28px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.card h3 small{font-size:15px;color:var(--mu);font-weight:500}
+.step{display:flex;gap:16px;align-items:flex-start}
+.num{flex:none;width:46px;height:46px;border-radius:50%;background:var(--p);color:#fff;display:grid;place-items:center;font-weight:800;font-size:21px}
+.card.team .num{background:#27272a}
+.step b{font-size:23px;display:block;margin-bottom:2px}.step span{font-size:17.5px;color:var(--mu);line-height:1.45}
+/* rank */
+.rank{display:flex;gap:10px;margin-top:auto;padding-top:6px}
+.rank div{flex:1;border-radius:12px;padding:10px 12px;font-size:15px;color:var(--mu);background:var(--bg)}
+.rank b{font-size:19px;color:var(--fg)}
+.pill{display:inline-block;font-weight:900;border-radius:8px;padding:2px 10px;margin-right:6px;color:#fff;background:var(--c2)}
+.pill.ss{background:linear-gradient(110deg,#ffe29a,#ffb703);color:#7a3b00}
+.foot{display:flex;justify-content:space-between;align-items:center;font-size:15px;color:var(--mu);border-top:1px solid var(--bd);padding-top:14px}
+.foot b{color:var(--p)}
+</style></head><body>
+<div class="wrap">
+  <section class="left">
+    <span class="tag">Exclusive Guild Extreme 2569</span>
+    <h1>Report Guild<br>System</h1>
+    <p class="sub">ระบบให้กิลด์ <b>ส่ง Report</b><br>และ<b>ดูคะแนนแบบเรียลไทม์</b><br>เชื่อมกับ CTM 🐶 · แทน Google Forms</p>
+    <div class="games"><span>Zone4 Extreme</span><span>Tree of Savior M Extreme</span><span>9Yin Classic</span></div>
+    <div class="why"><h3>ช่วยอะไร</h3><ul>
+      <li>📤 <span><b>ส่งงานง่าย</b> — หลายลิงก์/รูปในครั้งเดียว · นำเข้าจากไฟล์ Excel</span></li>
+      <li>📊 <span><b>กิลด์เห็นคะแนนตัวเองทันที</b> — Rank S/SS · สะสมรายปี</span></li>
+      <li>✅ <span><b>ทีมตรวจเร็วขึ้น</b> — อนุมัติทั้งชุดคลิกเดียว · เตือนลิงก์ซ้ำ</span></li>
+      <li>👥 <span><b>รายชื่อสมาชิก + ล็อกสิ้นเดือน</b> — ใช้แจกรางวัล กันสวมสิทธิ์</span></li>
+    </ul></div>
+    <div class="stats"><div><b>฿0</b><span>ฟรี 100%</span></div><div><b>100+</b><span>คนพร้อมกัน</span></div><div><b>~1.5s</b><span>โหลดหน้า</span></div><div><b>2575+</b><span>รองรับระยะยาว</span></div></div>
+  </section>
+
+  <section class="right">
+    <div>
+      <div class="sec-t">ระบบทำงานอย่างไร</div>
+      <div class="flow">
+        <div class="node"><div class="ic">🛡️</div><h4>เว็บกิลด์</h4><p>กิลด์ Login · ส่ง Report<br>ดูคะแนน · จัดการสมาชิก<br><b>มือถือ / คอม</b></p></div>
+        <div class="arrow"><i>→</i>ส่งงาน</div>
+        <div class="node mid"><div class="ic">🗂️</div><h4>ฐานข้อมูลกลาง</h4><p>Google Sheets + Drive<br>สำรองอัตโนมัติทุกสัปดาห์<br><b>ข้อมูลอยู่ในบริษัท</b></p></div>
+        <div class="arrow"><i>⇄</i>ตรวจ / ผล</div>
+        <div class="node"><div class="ic">🐶</div><h4>CTM ทีม Community</h4><p>ตรวจอนุมัติ · อันดับ<br>Mission · บัญชีกิลด์<br><b>ผลกลับไปเว็บกิลด์ทันที</b></p></div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <h3>🛡️ กิลด์ใช้งาน <small>เว็บกิลด์</small></h3>
+        <div class="steps">
+        <div class="step"><div class="num">1</div><div><b>เข้าสู่ระบบ</b><span>อีเมล + รหัสจากทีมงาน · ครั้งแรกตั้งรหัสใหม่ · จดจำ 30 วัน</span></div></div>
+        <div class="step"><div class="num">2</div><div><b>ส่ง Report</b><span>เลือก Mission → วางลิงก์ / แคปรูป (Ctrl+V) → ส่ง · 1 กล่อง = 1 ผลงาน</span></div></div>
+        <div class="step"><div class="num">3</div><div><b>ดูคะแนน & ผลตรวจ</b><span>คะแนนเดือน · วงแหวนไปถึง Rank · ถูกปฏิเสธกด "ส่งใหม่" ได้</span></div></div>
+        <div class="step"><div class="num">4</div><div><b>อัปเดตรายชื่อสมาชิก</b><span>ชื่อตัวละคร · EXE Number · Level — ระบบล็อกวันสุดท้ายของเดือน</span></div></div>
+        </div>
+        <div class="rank">
+          <div><span class="pill">S</span><b>Zone4 100+</b> · TOSM/9Yin 51+</div>
+          <div><span class="pill ss">SS</span><b>200+ ทุกเกม</b> · พลุฉลอง 🎉</div>
+        </div>
+      </div>
+      <div class="card team">
+        <h3>🐶 ทีมใช้งาน <small>CTM → Guild Report System</small></h3>
+        <div class="steps">
+        <div class="step"><div class="num">1</div><div><b>สร้างบัญชีกิลด์</b><span>ได้อีเมล + รหัสพร้อมข้อความส่งใน Discord</span></div></div>
+        <div class="step"><div class="num">2</div><div><b>ตรวจ Report</b><span>เปิดลิงก์/รูปทีละอัน → ผ่าน/ไม่ผ่าน → ยืนยันครั้งเดียว</span></div></div>
+        <div class="step"><div class="num">3</div><div><b>ดูอันดับ & Export</b><span>รายเดือน · รายไตรมาส (Rising Star) · CSV</span></div></div>
+        <div class="step"><div class="num">4</div><div><b>ตั้งค่า Mission & Rank</b><span>เพิ่ม Mission พิเศษรายเดือน · เปลี่ยนเกณฑ์รายปี</span></div></div>
+        </div>
+        <div class="rank"><div>🔍 <b>เตือนอัตโนมัติ</b> ลิงก์ซ้ำข้ามกิลด์ · EXE Number อยู่หลายกิลด์</div></div>
+      </div>
+    </div>
+
+    <div class="foot"><span>🔗 communityteamexe-cloud.github.io/Report-Guild-System</span><span>ต่อไป: <b>สรุปรางวัลสิ้นเดือน · ติดตามสิทธิ์ Rising Star / Meeting · เตือนใน Discord</b></span></div>
+  </section>
+</div>
+</body></html>
