@@ -263,9 +263,9 @@
       `<div class="${filled.length - ok ? 'warn' : ''}"><b>${filled.length - ok}</b><span>ยังไม่ถึงเกณฑ์</span></div>` +
       `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`;
     const days = meta.updatedAt ? Math.floor((Date.now() - new Date(meta.updatedAt)) / 86400000) : null;
-    $('m-notice').innerHTML = !filled.length && !state.memDirty
+    $('m-notice').innerHTML = snapshotNoticeHtml(false) + (!filled.length && !state.memDirty
       ? '<div class="notice welcome"><div><b>👥 ยังไม่มีรายชื่อสมาชิก</b><br>เพิ่มทีละคน · วางจาก Excel (ชื่อตัวละคร | ID | Level) · หรือนำเข้าไฟล์ .csv / .xlsx</div></div>'
-      : (days !== null && days > 30 ? `<div class="notice warn"><div>⏰ ไม่ได้อัปเดตรายชื่อมา ${days} วัน — ตรวจสมาชิกเข้า-ออก และ Level ล่าสุดก่อนสิ้นเดือน</div></div>` : '');
+      : (days !== null && days > 30 ? `<div class="notice warn"><div>⏰ ไม่ได้อัปเดตรายชื่อมา ${days} วัน — ตรวจสมาชิกเข้า-ออก และ Level ล่าสุดก่อนสิ้นเดือน</div></div>` : ''));
     $('m-body').innerHTML = (list.length ? '<div class="m-row m-head"><span>#</span><span>ชื่อตัวละคร *</span><span>ID ในเกม *</span><span>Level *</span><span>ตำแหน่ง</span><span>Discord</span><span></span></div>' : '') +
       list.map((m, i) => {
         const lv = Number(m.level) || 0, pass = lv >= min, dup = ids[String(m.inGameId || '').trim().toLowerCase()] > 1;
@@ -521,6 +521,22 @@
     return `<div class="notice ${d <= 2 ? 'warn' : 'info'}"><div>⏳ ${d === 1 ? '<b>วันสุดท้าย!</b> ปิดรอบ' : `เหลือ <b>${d} วัน</b> ก่อนปิดรอบ`} ${MONTHS[n.getMonth()]} ${n.getFullYear() + 543} — ส่งได้ถึง ${last} ${MONTHS[n.getMonth()]} 23:59 น.</div></div>`;
   }
 
+  /**
+   * นับถอยหลังก่อนระบบล็อกรายชื่อสมาชิก (วันสุดท้ายของเดือน 23:30) — โชว์ 7 วันสุดท้ายของทุกเดือน
+   * แม้เพิ่งอัปเดต เพราะ Level / สมาชิกเข้า-ออกเปลี่ยนตลอด · withBtn = มีปุ่มไปหน้าสมาชิก
+   */
+  function snapshotNoticeHtml(withBtn) {
+    const n = new Date(), last = new Date(n.getFullYear(), n.getMonth() + 1, 0);
+    const lock = new Date(last.getFullYear(), last.getMonth(), last.getDate(), 23, 30);
+    const d = daysLeftInMonth();
+    if (d > 7 || n >= lock) return '';
+    const when = `${last.getDate()} ${MONTHS[last.getMonth()]} 23:30 น.`;
+    const left = d === 1 ? `<b>วันนี้ ${when}</b>` : `วันที่ ${when} <b>(อีก ${d - 1} วัน)</b>`;
+    return `<div class="notice ${d <= 3 ? 'warn' : 'info'}"><div>📸 ระบบจะล็อกรายชื่อสมาชิก ${left}<br>` +
+      `<span class="muted">ตรวจสมาชิกเข้า-ออก และ Level ให้เป็นปัจจุบัน เพื่อให้ทุกคนที่ผ่านเกณฑ์ได้รับรางวัลครบ</span></div>` +
+      (withBtn ? '<div class="notice-act"><button type="button" class="btn go-mem">👥 ตรวจรายชื่อ</button></div>' : '') + '</div>';
+  }
+
   function renderDash(d) {
     const rule = d.rule, sc = d.monthScore, now = new Date();
     const isNow = d.year === now.getFullYear() && d.month === now.getMonth() + 1;
@@ -536,7 +552,8 @@
         `<div class="notice-act"><button type="button" class="btn go-send">📤 ส่ง Report แรก</button><button type="button" class="btn ghost open-help2">📖 วิธีใช้งาน</button></div></div>` : '';
     let slot = $('d-slot');
     if (!slot) { slot = document.createElement('div'); slot.id = 'd-slot'; $('d-notice').appendChild(slot); }
-    slot.innerHTML = (isNow ? deadlineHtml() : '') + welcome;
+    slot.innerHTML = (isNow ? deadlineHtml() + snapshotNoticeHtml(true) : '') + welcome;
+    const gm = slot.querySelector('.go-mem'); if (gm) gm.onclick = () => switchPage('mem');
     const gs = slot.querySelector('.go-send'); if (gs) gs.onclick = () => switchPage('send');
     const oh = slot.querySelector('.open-help2'); if (oh) oh.onclick = () => { $('help').hidden = false; };
     $('d-rank').innerHTML = d.rank ? `<span class="pill rank ${d.rank}">Rank ${d.rank}</span>` : '';
