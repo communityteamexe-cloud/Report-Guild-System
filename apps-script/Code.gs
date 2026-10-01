@@ -747,7 +747,7 @@ function membersOf_(g) {
 
 /**
  * บันทึกรายชื่อทั้งชุดของกิลด์ (แทนที่ของเดิม) · เทียบของเดิมเพื่อเขียนประวัติ เพิ่ม/ลบ/แก้
- * ตรวจ: ชื่อตัวละคร + ID ในเกม + Level บังคับ · ID ซ้ำในกิลด์ไม่ได้ · ไม่เกิน MAX_MEMBERS
+ * ตรวจ: ชื่อตัวละคร + EXE Number + Level บังคับ · ID ซ้ำในกิลด์ไม่ได้ · ไม่เกิน MAX_MEMBERS
  */
 function saveMembers_(g, input) {
   if (!Array.isArray(input)) throw new Error('ข้อมูลสมาชิกไม่ถูกต้อง');
@@ -760,10 +760,10 @@ function saveMembers_(g, input) {
     const lv = Number(m && m.level);
     if (!charName && !id && !(m && m.level)) return;              // แถวว่าง → ข้าม
     if (!charName) throw new Error('แถวที่ ' + n + ': กรอกชื่อตัวละคร');
-    if (!id) throw new Error('แถวที่ ' + n + ' (' + charName + '): กรอก ID ในเกม');
+    if (!id) throw new Error('แถวที่ ' + n + ' (' + charName + '): กรอก EXE Number');
     if (!(lv >= 1 && lv <= 9999) || Math.floor(lv) !== lv) throw new Error('แถวที่ ' + n + ' (' + charName + '): Level ต้องเป็นตัวเลข 1–9999');
     const key = id.toLowerCase();
-    if (seen[key]) throw new Error('ID ในเกม "' + id + '" ซ้ำกัน (แถว ' + seen[key] + ' และ ' + n + ')');
+    if (seen[key]) throw new Error('EXE Number "' + id + '" ซ้ำกัน (แถว ' + seen[key] + ' และ ' + n + ')');
     seen[key] = n;
     clean.push({ id: String(m.id || ''), charName: charName, inGameId: id, level: lv,
       role: MEMBER_ROLES[m.role] ? m.role : 'member', discord: !!m.discord });

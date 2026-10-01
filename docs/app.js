@@ -264,16 +264,16 @@
       `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`;
     const days = meta.updatedAt ? Math.floor((Date.now() - new Date(meta.updatedAt)) / 86400000) : null;
     $('m-notice').innerHTML = snapshotNoticeHtml(false) + (!filled.length && !state.memDirty
-      ? '<div class="notice welcome"><div><b>👥 ยังไม่มีรายชื่อสมาชิก</b><br>เพิ่มทีละคน · วางจาก Excel (ชื่อตัวละคร | ID | Level) · หรือนำเข้าไฟล์ .csv / .xlsx</div></div>'
+      ? '<div class="notice welcome"><div><b>👥 ยังไม่มีรายชื่อสมาชิก</b><br>เพิ่มทีละคน · วางจาก Excel (ชื่อตัวละคร | EXE Number | Level) · หรือนำเข้าไฟล์ .csv / .xlsx</div></div>'
       : (days !== null && days > 30 ? `<div class="notice warn"><div>⏰ ไม่ได้อัปเดตรายชื่อมา ${days} วัน — ตรวจสมาชิกเข้า-ออก และ Level ล่าสุดก่อนสิ้นเดือน</div></div>` : ''));
-    $('m-body').innerHTML = (list.length ? '<div class="m-row m-head"><span>#</span><span>ชื่อตัวละคร *</span><span>ID ในเกม *</span><span>Level *</span><span>ตำแหน่ง</span><span>Discord</span><span></span></div>' : '') +
+    $('m-body').innerHTML = (list.length ? '<div class="m-row m-head"><span>#</span><span>ชื่อตัวละคร *</span><span>EXE Number *</span><span>Level *</span><span>ตำแหน่ง</span><span>Discord</span><span></span></div>' : '') +
       list.map((m, i) => {
         const lv = Number(m.level) || 0, pass = lv >= min, dup = ids[String(m.inGameId || '').trim().toLowerCase()] > 1;
         const pct = min ? Math.min(100, Math.round((lv / min) * 100)) : 100;
         return `<div class="m-row${dup ? ' dup' : ''}" data-i="${i}">
           <span class="n">${i + 1}</span>
           <label><small>ชื่อตัวละคร *</small><input data-f="charName" maxlength="60" value="${esc(m.charName)}" placeholder="ชื่อตัวละคร"></label>
-          <label><small>ID ในเกม *</small><input data-f="inGameId" maxlength="40" value="${esc(m.inGameId)}" placeholder="ID"${dup ? ' title="ID ซ้ำ"' : ''}></label>
+          <label><small>EXE Number *</small><input data-f="inGameId" maxlength="40" value="${esc(m.inGameId)}" placeholder="EXE Number"${dup ? ' title="EXE Number ซ้ำ"' : ''}></label>
           <label class="lv"><small>Level *</small><input data-f="level" type="number" min="1" max="9999" inputmode="numeric" value="${m.level ? esc(m.level) : ''}" placeholder="Lv">
             <span class="lvbar ${pass ? 'pass' : ''}"><i style="width:${lv ? pct : 0}%"></i></span><em>${!lv ? '' : pass ? '✓ ผ่านเกณฑ์' : `อีก ${min - lv} Lv`}</em></label>
           <label><small>ตำแหน่ง</small><select data-f="role">${Object.keys(ROLE_TH).map((r) => `<option value="${r}"${(m.role || 'member') === r ? ' selected' : ''}>${ROLE_TH[r]}</option>`).join('')}</select></label>
@@ -310,7 +310,7 @@
   }
 
   /**
-   * แปลงตารางเป็นรายชื่อ: คอลัมน์ ชื่อตัวละคร | ID | Level | ตำแหน่ง? | Discord?
+   * แปลงตารางเป็นรายชื่อ: คอลัมน์ ชื่อตัวละคร | EXE Number | Level | ตำแหน่ง? | Discord?
    * ข้ามแถวหัวตาราง (Level ไม่ใช่ตัวเลข) · คั่นด้วย Tab (Excel) หรือ , (CSV)
    */
   function parseMemberRows(rows) {
@@ -324,8 +324,8 @@
     return String(text || '').split(/\r?\n/).filter((l) => l.trim()).map((l) => l.indexOf('\t') >= 0 ? l.split('\t') : l.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((s) => s.replace(/^"|"$/g, '')));
   }
   function memberImportResult(r, src) {
-    if (!r.added && !r.updated) return toast('ไม่พบรายชื่อที่อ่านได้ — ต้องมี 3 คอลัมน์: ชื่อตัวละคร | ID | Level', true);
-    toast(`${src}: เพิ่ม ${r.added} คน` + (r.updated ? ` · อัปเดต ${r.updated} คน (ID เดิม)` : '') + ' — กด 💾 บันทึกรายชื่อ');
+    if (!r.added && !r.updated) return toast('ไม่พบรายชื่อที่อ่านได้ — ต้องมี 3 คอลัมน์: ชื่อตัวละคร | EXE Number | Level', true);
+    toast(`${src}: เพิ่ม ${r.added} คน` + (r.updated ? ` · อัปเดต ${r.updated} คน (EXE Number เดิม)` : '') + ' — กด 💾 บันทึกรายชื่อ');
     if (r.over) toast(`⚠️ เกิน ${state.memMeta.max} คน — ข้าม ${r.over} คน`, true);
   }
 
@@ -333,7 +333,7 @@
     const o = document.createElement('div');
     o.className = 'overlay';
     o.innerHTML = `<div class="card help" role="dialog" aria-modal="true"><div class="help-head"><h2>📋 วางรายชื่อจาก Excel</h2><button type="button" class="icon x" aria-label="ปิด">✕</button></div>
-      <p class="muted">Copy จาก Excel / Google Sheets มาวางได้เลย — เรียงคอลัมน์: <b>ชื่อตัวละคร · ID ในเกม · Level</b> · (ตำแหน่ง · Discord ไม่บังคับ) · มีแถวหัวตารางก็ได้</p>
+      <p class="muted">Copy จาก Excel / Google Sheets มาวางได้เลย — เรียงคอลัมน์: <b>ชื่อตัวละคร · EXE Number · Level</b> · (ตำแหน่ง · Discord ไม่บังคับ) · มีแถวหัวตารางก็ได้</p>
       <textarea rows="9" placeholder="Somchai&#9;10234&#9;55&#10;Nina&#9;10235&#9;42&#9;รอง"></textarea>
       <div class="note" data-prev></div><button type="button" class="btn" data-ok>เพิ่มลงรายชื่อ</button></div>`;
     const ta = o.querySelector('textarea'), prev = o.querySelector('[data-prev]');
@@ -1071,7 +1071,7 @@
     members() { const l = this.memberList; return { members: l, levelMin: 40, max: 100, count: l.length, eligible: l.filter((m) => m.level >= 40).length, updatedAt: l.reduce((a, m) => m.updatedAt > a ? m.updatedAt : a, '') }; },
     saveMembers(b) {
       const seen = {};
-      b.members.forEach((m, i) => { if (!m.charName && !m.inGameId && !m.level) return; if (!m.charName || !m.inGameId || !Number(m.level)) throw new Error('แถวที่ ' + (i + 1) + ': กรอกให้ครบ'); const k = m.inGameId.toLowerCase(); if (seen[k]) throw new Error('ID ซ้ำ: ' + m.inGameId); seen[k] = 1; });
+      b.members.forEach((m, i) => { if (!m.charName && !m.inGameId && !m.level) return; if (!m.charName || !m.inGameId || !Number(m.level)) throw new Error('แถวที่ ' + (i + 1) + ': กรอกให้ครบ'); const k = m.inGameId.toLowerCase(); if (seen[k]) throw new Error('EXE Number ซ้ำ: ' + m.inGameId); seen[k] = 1; });
       this.memberList = b.members.filter((m) => m.charName).map((m) => Object.assign({}, m, { level: Number(m.level), eligible: Number(m.level) >= 40, updatedAt: new Date().toISOString() }));
       return Object.assign(this.members(), { changes: this.memberList.length });
     },
