@@ -269,3 +269,10 @@ th{font-size:12px;color:var(--muted-foreground);font-weight:500}
   .m-row .dc{justify-content:flex-start}
   .m-save{bottom:72px}
 }
+/* ไอคอนแท็บอยู่ในวงกลม — แท็บที่เลือก (พื้นแดง) วงกลมขาว ไอคอนไม่กลืน */
+.tab i{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--muted);font-size:15px;line-height:1;vertical-align:middle;transition:background .2s,transform .2s}
+.tab.on i{background:#fff;box-shadow:0 1px 4px rgb(0 0 0 / .18)}
+@media (max-width:760px){
+  .bar .tab i{width:32px;height:32px;font-size:18px}
+  .bar .tab.on i{transform:translateY(-1px) scale(1.05)}
+}
