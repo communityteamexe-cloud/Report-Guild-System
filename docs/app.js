@@ -61,6 +61,15 @@
       ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
   function safeUrl(u) { return /^https?:\/\//i.test(u) ? u : '#'; }
+  /**
+   * ปิดหน้าต่างเมื่อ "กดและปล่อย" บนพื้นหลังเท่านั้น
+   * (ลากคุมข้อความจากช่องพิมพ์ออกมาปล่อยนอกกล่อง → ไม่ปิด พิมพ์ต่อได้)
+   */
+  function onBackdrop(o, close) {
+    let downOnBg = false;
+    o.addEventListener('mousedown', (ev) => { downOnBg = ev.target === o; });
+    o.addEventListener('click', (ev) => { if (ev.target === o && downOnBg) close(); downOnBg = false; });
+  }
 
   // ---------- API ----------
   async function api(action, payload) {
@@ -340,7 +349,7 @@
     ta.oninput = () => { prev.textContent = `อ่านได้ ${parseMemberRows(splitTable(ta.value)).length} คน`; };
     const close = () => o.remove();
     o.querySelector('.x').onclick = close;
-    o.onclick = (ev) => { if (ev.target === o) close(); };
+    onBackdrop(o, close);
     o.querySelector('[data-ok]').onclick = () => { memberImportResult(addMembers(parseMemberRows(splitTable(ta.value))), 'วางจาก Excel'); close(); };
     document.body.appendChild(o);
     ta.focus();
@@ -447,7 +456,7 @@
       `<p class="muted">${rank === 'SS' ? 'สุดยอด! รักษาไว้ให้ได้ทุกเดือนนะ 👑' : 'อีกนิดเดียวถึง SS — สู้ ๆ! 🔥'}</p><button type="button" class="btn">เยี่ยมเลย!</button></div>`;
     const close = () => o.remove();
     o.querySelector('button').onclick = close;
-    o.onclick = (ev) => { if (ev.target === o) close(); };
+    onBackdrop(o, close);
     document.body.appendChild(o);
     if (!calm()) confetti(o.querySelector('canvas'));
   }
@@ -830,7 +839,8 @@
     o.querySelector('figcaption').textContent = img.name;
     const close = () => { o.remove(); document.removeEventListener('keydown', onKey); };
     const onKey = (ev) => { if (ev.key === 'Escape') close(); };
-    o.onclick = (ev) => { if (ev.target === o || ev.target.classList.contains('x')) close(); };
+    onBackdrop(o, close);
+    o.querySelector('.x').onclick = close;
     document.addEventListener('keydown', onKey);
     document.body.appendChild(o);
   }
@@ -1196,7 +1206,7 @@
     const closeHelp = () => { help.hidden = true; };
     document.querySelectorAll('.open-help').forEach((b) => b.addEventListener('click', (ev) => { ev.preventDefault(); help.hidden = false; $('help-x').focus(); }));
     $('help-x').onclick = closeHelp;
-    help.addEventListener('click', (ev) => { if (ev.target === help) closeHelp(); });
+    onBackdrop(help, closeHelp);
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !help.hidden) closeHelp(); });
     $('b-theme').onclick = () => {
       const t = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
