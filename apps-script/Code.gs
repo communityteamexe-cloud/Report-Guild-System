@@ -228,6 +228,7 @@ const ADMIN_ACTIONS = {
   adminCreateGuild: function (r) { return createGuild_(r); },
   adminResetPassword: function (r) { return resetPassword_(r.email); },
   adminSetGuildActive: function (r) { return setGuildField_(r.email, 'Active', !!r.active); },
+  adminDeleteGuild: function (r) { return deleteGuild_(r.email); },
   adminListReports: function (r) { return withDupFlags_(listReports_(Number(r.year), r.month ? Number(r.month) : null, r.game, r.status), Number(r.year)); },
   adminReview: function (r) { return reviewReport_(r); },
   adminReviewMany: function (r) { return reviewMany_(r); },
@@ -420,6 +421,29 @@ function publicGuild_(g) {
 function findGuild_(email) {
   email = String(email || '').trim().toLowerCase();
   return readRows_('Guilds').filter(function (g) { return String(g.Email).toLowerCase() === email; })[0] || null;
+}
+
+/**
+ * ลบบัญชีกิลด์ (CTM 🐶 สั่งลบ · 8 ต.ค. 69) — ต้อง "ระงับ" ก่อนเท่านั้น กันลบผิดบัญชีที่ยังใช้งานอยู่
+ * ลบแถวในแท็บ Guilds + รายชื่อสมาชิกของกิลด์ (Members) · Report เก่าเก็บไว้เป็นประวัติ (คะแนนย้อนหลังไม่หาย)
+ */
+function deleteGuild_(email) {
+  email = String(email || '').trim().toLowerCase();
+  if (!email) throw new Error('ไม่ระบุอีเมลกิลด์');
+  return withLock_(function () {
+    const sh = getSheet_('Guilds'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
+    let row = -1;
+    for (let i = 1; i < data.length; i++) if (String(data[i][col.Email]).toLowerCase() === email) { row = i; break; }
+    if (row < 0) throw new Error('ไม่พบบัญชี ' + email);
+    if (truthy_(data[row][col.Active])) throw new Error('ต้องระงับบัญชีก่อนจึงจะลบได้');
+    sh.deleteRow(row + 1);
+    clearRows_('Guilds');
+    let members = 0;
+    const ms = getSheet_('Members'), md = ms.getDataRange().getValues(), mc = indexMap_(md[0]);
+    for (let j = md.length - 1; j >= 1; j--) if (String(md[j][mc.Email]).toLowerCase() === email) { ms.deleteRow(j + 1); members++; }
+    if (members) clearRows_('Members');
+    return { deleted: email, members: members };
+  });
 }
 
 function setGuildField_(email, field, value) {
