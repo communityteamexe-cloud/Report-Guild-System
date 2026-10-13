@@ -319,3 +319,34 @@ body{background:var(--background)}
   .setup{grid-template-columns:64px 1fr}.setup .btn{grid-column:1 / -1;width:100%}
   .setup-ring{width:64px;height:64px}.setup-ring svg{width:64px;height:64px}
 }
+
+/* ===== แถบเมนูใหม่ (Segmented + ⚙️) — 13 ต.ค. 69 ===== */
+.bar .tabs{gap:2px;background:var(--muted);border:1px solid var(--border);border-radius:999px;padding:3px}
+.bar .tab{border:0;background:transparent;color:var(--muted-foreground);padding:7px 14px;font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:background .15s,color .15s}
+.bar .tab:hover{color:var(--foreground)}
+.bar .tab.on{background:var(--card);color:var(--foreground);font-weight:600;box-shadow:0 1px 3px rgb(0 0 0 / .1),0 0 0 1px var(--border)}
+.bar .tab i,.bar .tab.on i{width:auto;height:auto;background:none;box-shadow:none;border-radius:0;font-size:15px;transform:none}
+.tab-dot{position:static;width:auto;height:16px;min-width:16px;padding:0 4px;border-radius:99px;display:inline-grid;place-items:center;font-size:10.5px;font-weight:700;font-style:normal;color:#fff;background:var(--bad);box-shadow:none;line-height:1}
+.tab-dot[hidden]{display:none}
+.menu{display:flex;gap:6px;align-items:center;margin-left:auto}
+.icon.round{width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:var(--card);display:grid;place-items:center;font-size:16px;padding:0}
+.icon.round:hover{background:var(--muted)}
+.dd{position:relative}
+.dd-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:50;min-width:210px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 10px 30px rgb(0 0 0 / .14)}
+.dd-pop[hidden]{display:none}
+.dd-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;background:none;border-radius:8px;font:inherit;color:var(--foreground);cursor:pointer;text-align:left}
+.dd-item:hover{background:var(--muted)}
+.dd-item em,.dd-item span{font-style:normal;width:20px;text-align:center}
+/* ⓘ EXE Number */
+.info-i{width:16px;height:16px;border-radius:50%;border:1px solid var(--muted-foreground);background:none;color:var(--muted-foreground);font:italic 700 10px/1 Georgia,serif;display:inline-grid;place-items:center;padding:0;margin-left:4px;cursor:pointer;vertical-align:middle}
+.info-i:hover{border-color:var(--primary);color:var(--primary)}
+.info-pop{position:absolute;z-index:70;width:280px;padding:10px 12px;font-size:12.5px;line-height:1.55;background:var(--card);color:var(--foreground);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgb(0 0 0 / .15)}
+.info-pop a{font-weight:600;word-break:break-all}
+.m-row input.warn{border-color:color-mix(in srgb,var(--warn) 55%,var(--border));background:var(--background)}
+@media (max-width:720px){
+  .bar .tabs{border-radius:0;border:0;border-top:1px solid var(--border);background:var(--card);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+  .bar .tab{flex-direction:column;gap:2px;padding:6px 4px;font-size:11.5px;border-radius:12px;position:relative}
+  .bar .tab i{font-size:19px}
+  .bar .tab.on{box-shadow:none;background:var(--muted);color:var(--primary)}
+  .tab-dot{position:absolute;top:2px;right:calc(50% - 22px);height:15px;min-width:15px;font-size:10px;box-shadow:0 0 0 2px var(--card)}
+}

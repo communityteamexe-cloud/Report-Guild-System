@@ -807,9 +807,9 @@ function guildCompleteness_(g) {
 }
 
 /** ข้อมูลกิลด์ทั้งหมด (เว็บกิลด์ + CTM) */
-function membersOf_(g) {
-  const list = readRows_('Members').filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
-  const profile = profileOf_(g);
+function membersOf_(g, listIn, profileIn) {
+  const list = listIn || readRows_('Members').filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
+  const profile = profileIn || profileOf_(g);
   const last = list.reduce(function (m, x) { return x.updatedAt > m ? x.updatedAt : m; }, profile.updatedAt || '');
   return { game: g.Game, members: list, profile: profile, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
     servers: isZ4_(g.Game) ? [] : TOSM_SERVERS, cuteMax: isZ4_(g.Game) ? CUTE_GANG_MAX : 0,
@@ -903,13 +903,22 @@ function saveMembers_(g, input, profileIn, totalIn) {
     });
     Object.keys(old).forEach(function (k) { const r = old[k]; logs.push(['ลบ', r[col.CharName], String(r[col.InGameID] || r[col.Server] || '').replace(/^'/, ''), 'Lv ' + r[col.Level]]); });
 
-    const all = others.concat(rows);
-    sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), head.length).clearContent();
-    if (all.length) sh.getRange(2, 1, all.length, head.length).setValues(all);
+    // เขียนเฉพาะช่วงตั้งแต่แถวแรกของกิลด์นี้ (หรือแถวว่างแรก) ถึงท้ายชีต — แถวกิลด์อื่นก่อนหน้านั้นไม่ถูกแตะ
+    const body = data.slice(1);
+    let first = body.findIndex(function (r) { return r[col.Email] === g.Email || r.join('') === ''; });
+    if (first < 0) first = body.length;
+    const tail = rows.concat(body.slice(first).filter(function (r) { return r.join('') !== '' && r[col.Email] !== g.Email; }));
+    if (tail.length) sh.getRange(first + 2, 1, tail.length, head.length).setValues(tail);
+    const extra = body.length - first - tail.length;
+    if (extra > 0) sh.getRange(first + 2 + tail.length, 1, extra, head.length).clearContent();
     if (logs.length) appendRows_('MemberLog', logs.map(function (l) {
       return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: l[2] ? "'" + l[2] : '', Detail: l[3] };
     }));
-    return Object.assign(membersOf_(g), { changes: logs.length });
+    // ตอบกลับจากข้อมูลที่เพิ่งบันทึก (ไม่อ่านชีตซ้ำ)
+    const list = rows.map(function (r) { const o = {}; head.forEach(function (h, i) { o[h] = r[i]; }); return memberOut_(o, g.Game); });
+    const profile = { leaderName: prow.LeaderName, leaderNick: prow.LeaderNick, leaderPhone: prow.LeaderPhone.slice(1), leaderFb: prow.LeaderFB,
+      totalMembers: total === '' ? null : total, updatedAt: now.toISOString() };
+    return Object.assign(membersOf_(g, list, profile), { changes: logs.length });
   });
 }
 

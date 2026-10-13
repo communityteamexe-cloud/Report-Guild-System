@@ -100,14 +100,19 @@
       <button class="tab on" data-p="dash"><i>📊</i> คะแนน</button>
       <button class="tab" data-p="send"><i>📤</i> ส่ง Report</button>
       <button class="tab" data-p="hist"><i>🕘</i> ประวัติ</button>
-      <button class="tab" data-p="mem"><i>🛡️</i> ข้อมูลกิลด์<b class="tab-dot" id="mem-dot" hidden></b></button>
+      <button class="tab" data-p="mem"><i>🛡️</i> ข้อมูลกิลด์<b class="tab-dot" id="mem-dot" hidden>!</b></button>
     </nav>
     <div class="menu">
-      <button class="icon lbl open-help" title="วิธีใช้งาน">❓<span>วิธีใช้</span></button>
-      <button class="icon lbl" id="b-theme" title="สลับโหมดมืด"><em>🌙</em><span>ธีม</span></button>
-      <button class="icon lbl" id="b-accent" title="เปลี่ยนสีเน้น">🎨<span>สี</span></button>
-      <button class="icon lbl" id="b-pass" title="เปลี่ยนรหัสผ่าน">🔑<span>รหัสผ่าน</span></button>
-      <button class="icon lbl" id="b-out" title="ออกจากระบบ">🚪<span>ออก</span></button>
+      <div class="dd">
+        <button class="icon round" id="b-set" title="ตั้งค่า" aria-haspopup="true" aria-expanded="false">⚙️</button>
+        <div class="dd-pop" id="dd-pop" hidden>
+          <button class="dd-item open-help"><span>❓</span>วิธีใช้งาน</button>
+          <button class="dd-item" id="b-theme"><em>🌙</em>โหมดมืด / สว่าง</button>
+          <button class="dd-item" id="b-accent"><span>🎨</span>เปลี่ยนสีเน้น</button>
+          <button class="dd-item" id="b-pass"><span>🔑</span>เปลี่ยนรหัสผ่าน</button>
+        </div>
+      </div>
+      <button class="icon round" id="b-out" title="ออกจากระบบ" aria-label="ออกจากระบบ">🚪</button>
     </div>
   </header>
 

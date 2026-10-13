@@ -245,6 +245,7 @@
   const ROLE_TH = { leader: '👑 หัวหน้ากิลด์', deputy: '⭐ รองหัวหน้ากิลด์', member: 'สมาชิก' };
   // EXE Number แบบใหม่ (ตามประกาศ): ตัวอักษรอังกฤษพิมพ์ใหญ่ + ตัวเลข ยาวประมาณ 25 ตัว เช่น N0JXB57ENOQNCOKKDKICZUH76
   const EXE_NEW = /^[A-Z0-9]{20,40}$/;
+  const EXE_INFO = '<button type="button" class="info-i" data-info="exe" aria-label="ดูวิธีเช็ค EXE Number">i</button>';
   const isZ4 = () => state.guild && state.guild.game === 'z4';
 
   async function loadMembers() {
@@ -316,7 +317,7 @@
         : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนจริง ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
     }
     $('m-notice').innerHTML = snapshotNoticeHtml(false);
-    const head = z4 ? '<span>#</span><span>EXE Number *</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>ตำแหน่ง</span><span>💖 Cute</span><span></span>'
+    const head = z4 ? '<span>#</span><span>EXE Number * ' + EXE_INFO + '</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>ตำแหน่ง</span><span>💖 Cute</span><span></span>'
       : '<span>#</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>Server *</span><span></span>';
     $('m-body').className = 'm-list ' + (z4 ? 'z4' : 'tosm');
     $('m-body').innerHTML = !list.length
@@ -329,7 +330,7 @@
             <span class="lvbar ${pass ? 'pass' : ''}"><i style="width:${lv ? pct : 0}%"></i></span><em>${!lv ? '' : pass ? '✓ ผ่านเกณฑ์' : `อีก ${min - lv} Lv`}</em></label>`;
         const nameCell = `<label><small>ชื่อตัวละคร *</small><input data-f="charName" maxlength="60" value="${esc(m.charName)}" placeholder="ชื่อตัวละคร"></label>`;
         const cells = z4
-          ? `<label><small>EXE Number *</small><input data-f="inGameId" maxlength="60" class="mono${dup || exeWarn ? ' warn' : ''}" value="${esc(m.inGameId)}" placeholder="N0JXB57ENOQ..." title="${dup ? 'EXE Number ซ้ำ' : exeWarn ? 'ไม่ตรงรูปแบบ EXE Number ใหม่ (ตัวอักษร+ตัวเลข ~25 ตัว)' : ''}" autocapitalize="characters">${exeWarn ? '<em class="warn-t">รูปแบบเก่า/ไม่ถูกต้อง</em>' : ''}</label>` +
+          ? `<label><small>EXE Number * ${EXE_INFO}</small><input data-f="inGameId" maxlength="60" class="mono${dup || exeWarn ? ' warn' : ''}" value="${esc(m.inGameId)}" placeholder="N0JXB57ENOQ..." title="${dup ? 'EXE Number ซ้ำ' : exeWarn ? 'รูปแบบไม่ตรง EXE Number ใหม่ — กด ⓘ ดูวิธีเช็ค' : ''}" autocapitalize="characters"></label>` +
             nameCell + lvCell +
             `<label><small>ตำแหน่ง</small><select data-f="role">${Object.keys(ROLE_TH).map((r) => `<option value="${r}"${(m.role || 'member') === r ? ' selected' : ''}>${ROLE_TH[r]}</option>`).join('')}</select></label>` +
             `<label class="cute"><input data-f="cute" type="checkbox"${m.cute ? ' checked' : ''}${!pass || m.role === 'leader' || (!m.cute && cute >= 5) ? ' disabled' : ''} title="${m.role === 'leader' ? 'หัวหน้าได้รางวัล Head Gang อยู่แล้ว' : !pass ? 'Level ยังไม่ถึงเกณฑ์' : !m.cute && cute >= 5 ? 'เลือกครบ 5 คนแล้ว' : 'เลือกเป็น Cute Gang'}"><small>${m.role === 'leader' ? 'Head Gang' : 'Cute Gang'}</small></label>`
@@ -465,13 +466,14 @@
     pullMembers();
     const btn = $('m-save');
     btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก…';
+    const slow = setTimeout(() => { btn.textContent = '⏳ กำลังเขียนลงระบบ… อีกสักครู่'; }, 3000);
     try {
       const d = await api('saveMembers', { members: state.members, profile: state.profile, totalMembers: isZ4() ? '' : $('m-total').value });
       applyMemberData(d);
       setMemDirty(false); renderMembers();
       toast(d.changes ? `✅ บันทึกแล้ว (${d.changes} รายการเปลี่ยนแปลง)` : '✅ บันทึกแล้ว ไม่มีอะไรเปลี่ยน');
     } catch (err) { toast(err.message, true); setMemDirty(true); }
-    finally { btn.textContent = '💾 บันทึกข้อมูลกิลด์'; if (state.memDirty) btn.disabled = false; }
+    finally { clearTimeout(slow); btn.textContent = '💾 บันทึกข้อมูลกิลด์'; if (state.memDirty) btn.disabled = false; }
   }
 
   function startRefresh() {
@@ -1242,6 +1244,26 @@
     fillPeriodSelects();
     applyAccent(store.get('rgs_accent'));
     $('b-accent').onclick = openAccent;
+    // ⚙️ เมนูตั้งค่า (วิธีใช้ · ธีม · สี · รหัสผ่าน) — กดรายการแล้วปิดเอง · กดที่อื่นปิด
+    // ⓘ ที่ EXE Number → กล่องเล็กบอกที่ดู EXE Number
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('.info-i'), old = document.querySelector('.info-pop');
+      if (old && !e.target.closest('.info-pop')) old.remove();
+      if (!b) return;
+      e.preventDefault(); e.stopPropagation();
+      if (old && old.dataset.for === 'exe') return;
+      const p = document.createElement('div'), r = b.getBoundingClientRect();
+      p.className = 'info-pop'; p.dataset.for = 'exe';
+      p.innerHTML = 'สามารถ Login และดู EXE Number ได้ที่<br><a href="https://portal.exe.in.th/member" target="_blank" rel="noopener">https://portal.exe.in.th/member ↗</a>';
+      p.style.top = (r.bottom + window.scrollY + 6) + 'px';
+      p.style.left = Math.max(8, Math.min(r.left + window.scrollX - 12, document.documentElement.clientWidth - 288)) + 'px';
+      document.body.appendChild(p);
+    }, true);
+    const dd = $('dd-pop'), setDd = (on) => { dd.hidden = !on; $('b-set').setAttribute('aria-expanded', on); };
+    $('b-set').onclick = (e) => { e.stopPropagation(); setDd(dd.hidden); };
+    dd.addEventListener('click', (e) => { if (e.target.closest('.dd-item')) setDd(false); });
+    document.addEventListener('click', (e) => { if (!dd.hidden && !e.target.closest('.dd')) setDd(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setDd(false); });
     applyTheme(store.get('rgs_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
     $('f-login').addEventListener('submit', onLogin);
     $('f-pass').addEventListener('submit', onPass);
