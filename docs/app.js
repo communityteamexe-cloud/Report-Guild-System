@@ -205,7 +205,7 @@
     const since = Number(store.get(seenKey) || 0);
     try {
       const b = DEMO
-        ? { guild: state.guild, missions: await api('missions'), dashboard: await api('dashboard', { year: now.getFullYear(), month: now.getMonth() + 1 }) }
+        ? { guild: state.guild, missions: await api('missions'), dashboard: await api('dashboard', { year: now.getFullYear(), month: now.getMonth() + 1 }), info: Demo.info() }
         : await api('bootstrap', { year: now.getFullYear(), month: now.getMonth() + 1, since: since });
       state.guild = b.guild;
       showGuild(b.guild);
@@ -213,6 +213,7 @@
       renderDash(b.dashboard);
       renderMissions(b.missions);
       showReviewed(b.reviewed);
+      if (b.info) setGuildInfo(b.info);
       store.set('rgs_seen_' + b.guild.email, String(Date.now()));
       startRefresh();
     } catch (err) { toast(err.message, true); }
@@ -240,18 +241,51 @@
     if (p === 'mem' && !state.memDirty) loadMembers();
   }
 
-  // ---------- สมาชิกกิลด์ ----------
-  const ROLE_TH = { leader: '👑 หัวหน้า', deputy: '⭐ รอง', member: 'สมาชิก' };
+  // ---------- ข้อมูลกิลด์ (หัวหน้า · รายชื่อ · Cute Gang / จำนวนสมาชิก) ----------
+  const ROLE_TH = { leader: '👑 หัวหน้ากิลด์', deputy: '⭐ รองหัวหน้ากิลด์', member: 'สมาชิก' };
+  // EXE Number แบบใหม่ (ตามประกาศ): ตัวอักษรอังกฤษพิมพ์ใหญ่ + ตัวเลข ยาวประมาณ 25 ตัว เช่น N0JXB57ENOQNCOKKDKICZUH76
+  const EXE_NEW = /^[A-Z0-9]{20,40}$/;
+  const isZ4 = () => state.guild && state.guild.game === 'z4';
 
   async function loadMembers() {
-    $('m-body').innerHTML = '<div class="empty">กำลังโหลดรายชื่อ…</div>';
+    $('m-body').innerHTML = '<div class="empty">กำลังโหลดข้อมูลกิลด์…</div>';
     try {
       const d = await api('members');
-      state.memMeta = d;
-      state.members = d.members.map((m) => Object.assign({}, m));
+      applyMemberData(d);
       setMemDirty(false);
       renderMembers();
     } catch (err) { $('m-body').innerHTML = `<div class="empty">โหลดไม่สำเร็จ: ${esc(err.message)}</div>`; }
+  }
+  function applyMemberData(d) {
+    state.memMeta = d;
+    state.members = d.members.map((m) => Object.assign({}, m));
+    state.profile = Object.assign({}, d.profile || {});
+    $('m-leader').querySelectorAll('[data-p]').forEach((el) => { el.value = state.profile[el.dataset.p] || ''; });
+    $('m-total').value = state.profile.totalMembers == null ? '' : state.profile.totalMembers;
+    setGuildInfo(d.info);
+  }
+
+  /** สถานะความครบ → จุดแดงที่แท็บ + การ์ดเตือนหน้าแรก + เตือนหน้าส่ง */
+  function setGuildInfo(info) {
+    state.guildInfo = info || null;
+    $('mem-dot').hidden = !info || info.complete;
+    renderSetupCard();
+    $('s-guildwarn').innerHTML = info && !info.complete
+      ? `<div class="notice warn"><div>🛡️ <b>ข้อมูลกิลด์ยังไม่ครบ:</b> ${info.missing.map(esc).join(' · ')}<br><span class="muted">ยังส่ง Report ได้ แต่ทีมงานต้องใช้ข้อมูลนี้ตรวจงานและส่งรางวัลให้สมาชิก</span></div><div class="notice-act"><button type="button" class="btn go-mem">กรอกตอนนี้</button></div></div>` : '';
+    const gm = $('s-guildwarn').querySelector('.go-mem'); if (gm) gm.onclick = () => switchPage('mem');
+  }
+  function renderSetupCard() {
+    let box = $('d-setup');
+    if (!box) return;
+    const info = state.guildInfo;
+    if (!info || info.complete) { box.innerHTML = ''; return; }
+    const pct = Math.round((info.done / info.steps.length) * 100), C = 2 * Math.PI * 34;
+    box.innerHTML = `<div class="setup card"><div class="setup-ring"><svg viewBox="0 0 80 80"><circle class="t" cx="40" cy="40" r="34"/><circle class="p" cx="40" cy="40" r="34" style="stroke-dasharray:${C};stroke-dashoffset:${C * (1 - pct / 100)}"/></svg><b>${info.done}/${info.steps.length}</b></div>
+      <div><span class="pill rejected">⚠️ สำคัญ — ใช้ส่งรางวัลให้สมาชิก</span><h3 style="margin:6px 0 4px">กรอกข้อมูลกิลด์ให้ครบ</h3>
+      ${info.steps.map((s, i) => `<div class="setup-step"><span class="ck ${s.ok ? 'done' : ''}">${s.ok ? '✓' : i + 1}</span>${esc(s.label)}${s.count != null && !s.ok ? ` <span class="pill pending">${s.key === 'cute' ? s.count + '/5' : s.count + ' คน'}</span>` : ''}</div>`).join('')}
+      <p class="note muted">${isZ4() ? 'ทีมงานใช้ข้อมูลนี้ตรวจ Report และ<b>แอดไอเทมรางวัลเข้า EXE Number ของสมาชิก</b>' : 'ทีมงานใช้ข้อมูลนี้ตรวจ Report และ<b>ส่งไอเทม Code ให้ครบตามจำนวนสมาชิก</b>'} — ไม่ครบ = สมาชิกอาจไม่ได้รับของ</p></div>
+      <button type="button" class="btn go-mem">กรอกตอนนี้ →</button></div>`;
+    box.querySelector('.go-mem').onclick = () => switchPage('mem');
   }
 
   function setMemDirty(on) {
@@ -260,111 +294,169 @@
     $('m-save').disabled = !on;
   }
 
-  /** วาดรายชื่อ (จอใหญ่ = แถวแบบตาราง · มือถือ = การ์ด) + สรุป + เตือน */
+  /** วาดหน้าข้อมูลกิลด์ตามเกม (Zone4: EXE · ตำแหน่ง · Cute Gang · TOSM/9Yin: Server · จำนวนสมาชิกทั้งหมด) */
   function renderMembers() {
-    const meta = state.memMeta || { levelMin: 0, max: 100 }, list = state.members || [], min = meta.levelMin;
-    const ids = {};
-    list.forEach((m) => { const k = String(m.inGameId || '').trim().toLowerCase(); if (k) ids[k] = (ids[k] || 0) + 1; });
+    const meta = state.memMeta || { levelMin: 0, max: 100, servers: [] }, list = state.members || [], min = meta.levelMin, z4 = isZ4();
+    const key = (m) => (z4 ? String(m.inGameId || '') : String(m.charName || '') + '|' + String(m.server || '')).trim().toLowerCase();
+    const seen = {};
+    list.forEach((m) => { const k = key(m); if (k && k !== '|') seen[k] = (seen[k] || 0) + 1; });
     const filled = list.filter((m) => m.charName || m.inGameId || m.level);
     const ok = filled.filter((m) => Number(m.level) >= min).length;
-    $('m-sub').textContent = `${state.guild.gameName} · เกณฑ์รับ Benefit: Level ${min} ขึ้นไป · สูงสุด ${meta.max} คน`;
-    $('m-stats').innerHTML = `<div><b>${filled.length}</b><span>สมาชิก</span></div><div class="ok"><b>${ok}</b><span>ผ่านเกณฑ์ Lv ${min}</span></div>` +
+    const cute = z4 ? list.filter((m) => m.cute).length : 0;
+    $('m-total-card').hidden = z4;
+    $('m-list-t').textContent = (z4 ? '2' : '3') + ' · รายชื่อสมาชิก';
+    $('m-sub').textContent = `${state.guild.gameName} · เกณฑ์รับรางวัล Level ${min} ขึ้นไป · สูงสุด ${meta.max} คน`;
+    $('m-stats').innerHTML = `<div><b>${filled.length}</b><span>สมาชิกทั้งหมด</span></div><div class="ok"><b>${ok}</b><span>ผ่านเกณฑ์ Lv ${min}</span></div>` +
       `<div class="${filled.length - ok ? 'warn' : ''}"><b>${filled.length - ok}</b><span>ยังไม่ถึงเกณฑ์</span></div>` +
-      `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`;
-    const days = meta.updatedAt ? Math.floor((Date.now() - new Date(meta.updatedAt)) / 86400000) : null;
-    $('m-notice').innerHTML = snapshotNoticeHtml(false) + (!filled.length && !state.memDirty
-      ? '<div class="notice welcome"><div><b>👥 ยังไม่มีรายชื่อสมาชิก</b><br>เพิ่มทีละคน · วางจาก Excel (ชื่อตัวละคร | EXE Number | Level) · หรือนำเข้าไฟล์ .csv / .xlsx</div></div>'
-      : (days !== null && days > 30 ? `<div class="notice warn"><div>⏰ ไม่ได้อัปเดตรายชื่อมา ${days} วัน — ตรวจสมาชิกเข้า-ออก และ Level ล่าสุดก่อนสิ้นเดือน</div></div>` : ''));
-    $('m-body').innerHTML = (list.length ? '<div class="m-row m-head"><span>#</span><span>ชื่อตัวละคร *</span><span>EXE Number *</span><span>Level *</span><span>ตำแหน่ง</span><span>Discord</span><span></span></div>' : '') +
-      list.map((m, i) => {
-        const lv = Number(m.level) || 0, pass = lv >= min, dup = ids[String(m.inGameId || '').trim().toLowerCase()] > 1;
+      (z4 ? `<div class="${cute < 5 ? 'warn' : 'ok'}"><b>${cute}/5</b><span>💖 Cute Gang เดือนนี้</span></div>` : `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`);
+    if (!z4) {
+      const t = Number($('m-total').value);
+      $('m-total-cmp').innerHTML = !t ? '<span class="pill pending">กรอกจำนวนสมาชิกทั้งหมดในเกม</span>'
+        : t === filled.length ? `<span class="pill approved">✓ ตรงกับรายชื่อที่กรอก (${filled.length} คน)</span>`
+        : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนจริง ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
+    }
+    $('m-notice').innerHTML = snapshotNoticeHtml(false);
+    const head = z4 ? '<span>#</span><span>EXE Number *</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>ตำแหน่ง</span><span>💖 Cute</span><span></span>'
+      : '<span>#</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>Server *</span><span></span>';
+    $('m-body').className = 'm-list ' + (z4 ? 'z4' : 'tosm');
+    $('m-body').innerHTML = !list.length
+      ? `<div class="empty">ยังไม่มีรายชื่อสมาชิก — กด <b>📂 อัปโหลดไฟล์กิลด์เดิม</b> ระบบอ่านให้เอง หรือ <b>📋 วางจาก Excel</b> · <b>＋ เพิ่มสมาชิก</b></div>`
+      : `<div class="m-row m-head">${head}</div>` + list.map((m, i) => {
+        const lv = Number(m.level) || 0, pass = lv >= min, dup = seen[key(m)] > 1;
+        const exeWarn = z4 && m.inGameId && !EXE_NEW.test(String(m.inGameId).trim());
         const pct = min ? Math.min(100, Math.round((lv / min) * 100)) : 100;
-        return `<div class="m-row${dup ? ' dup' : ''}" data-i="${i}">
-          <span class="n">${i + 1}</span>
-          <label><small>ชื่อตัวละคร *</small><input data-f="charName" maxlength="60" value="${esc(m.charName)}" placeholder="ชื่อตัวละคร"></label>
-          <label><small>EXE Number *</small><input data-f="inGameId" maxlength="40" value="${esc(m.inGameId)}" placeholder="EXE Number"${dup ? ' title="EXE Number ซ้ำ"' : ''}></label>
-          <label class="lv"><small>Level *</small><input data-f="level" type="number" min="1" max="9999" inputmode="numeric" value="${m.level ? esc(m.level) : ''}" placeholder="Lv">
-            <span class="lvbar ${pass ? 'pass' : ''}"><i style="width:${lv ? pct : 0}%"></i></span><em>${!lv ? '' : pass ? '✓ ผ่านเกณฑ์' : `อีก ${min - lv} Lv`}</em></label>
-          <label><small>ตำแหน่ง</small><select data-f="role">${Object.keys(ROLE_TH).map((r) => `<option value="${r}"${(m.role || 'member') === r ? ' selected' : ''}>${ROLE_TH[r]}</option>`).join('')}</select></label>
-          <label class="dc"><input data-f="discord" type="checkbox"${m.discord ? ' checked' : ''}><small>อยู่ใน Discord</small></label>
-          <button type="button" class="icon x" data-del="${i}" title="ลบสมาชิก" aria-label="ลบสมาชิก">×</button></div>`;
+        const lvCell = `<label class="lv"><small>เลเวลปัจจุบัน *</small><input data-f="level" type="number" min="1" max="9999" inputmode="numeric" value="${m.level ? esc(m.level) : ''}" placeholder="Lv">
+            <span class="lvbar ${pass ? 'pass' : ''}"><i style="width:${lv ? pct : 0}%"></i></span><em>${!lv ? '' : pass ? '✓ ผ่านเกณฑ์' : `อีก ${min - lv} Lv`}</em></label>`;
+        const nameCell = `<label><small>ชื่อตัวละคร *</small><input data-f="charName" maxlength="60" value="${esc(m.charName)}" placeholder="ชื่อตัวละคร"></label>`;
+        const cells = z4
+          ? `<label><small>EXE Number *</small><input data-f="inGameId" maxlength="60" class="mono${dup || exeWarn ? ' warn' : ''}" value="${esc(m.inGameId)}" placeholder="N0JXB57ENOQ..." title="${dup ? 'EXE Number ซ้ำ' : exeWarn ? 'ไม่ตรงรูปแบบ EXE Number ใหม่ (ตัวอักษร+ตัวเลข ~25 ตัว)' : ''}" autocapitalize="characters">${exeWarn ? '<em class="warn-t">รูปแบบเก่า/ไม่ถูกต้อง</em>' : ''}</label>` +
+            nameCell + lvCell +
+            `<label><small>ตำแหน่ง</small><select data-f="role">${Object.keys(ROLE_TH).map((r) => `<option value="${r}"${(m.role || 'member') === r ? ' selected' : ''}>${ROLE_TH[r]}</option>`).join('')}</select></label>` +
+            `<label class="cute"><input data-f="cute" type="checkbox"${m.cute ? ' checked' : ''}${!pass || m.role === 'leader' || (!m.cute && cute >= 5) ? ' disabled' : ''} title="${m.role === 'leader' ? 'หัวหน้าได้รางวัล Head Gang อยู่แล้ว' : !pass ? 'Level ยังไม่ถึงเกณฑ์' : !m.cute && cute >= 5 ? 'เลือกครบ 5 คนแล้ว' : 'เลือกเป็น Cute Gang'}"><small>${m.role === 'leader' ? 'Head Gang' : 'Cute Gang'}</small></label>`
+          : nameCell + lvCell +
+            `<label><small>Server *</small><select data-f="server" class="${dup ? 'warn' : ''}"><option value="">— เลือกเซิร์ฟเวอร์ —</option>${(meta.servers || []).map((s) => `<option${m.server === s ? ' selected' : ''}>${s}</option>`).join('')}</select></label>`;
+        return `<div class="m-row${dup ? ' dup' : ''}${m.cute ? ' picked' : ''}" data-i="${i}"><span class="n">${i + 1}</span>${cells}<button type="button" class="icon x" data-del="${i}" title="ลบสมาชิก" aria-label="ลบสมาชิก">×</button></div>`;
       }).join('');
+    $('m-cute').innerHTML = z4 && list.length ? `<div class="notice ${cute >= 5 ? 'good' : 'info'}"><div>💖 <b>Cute Gang ประจำเดือน ${MONTHS[new Date().getMonth()]}: เลือกแล้ว ${cute}/5</b>${cute ? ' · ' + list.filter((m) => m.cute).map((m) => esc(m.charName)).join(' · ') : ''}<br><span class="muted">เลือกใหม่ทุกเดือน · เฉพาะสมาชิกที่ Level ผ่านเกณฑ์ · ล็อกพร้อมรายชื่อวันสุดท้ายของเดือน 23:30</span></div></div>` : '';
   }
 
-  /** อ่านค่าจากช่องกรอกกลับเข้า state (เรียกก่อนวาดใหม่/บันทึก) */
+  /** อ่านค่าจากช่องกรอกกลับเข้า state */
   function pullMembers() {
     $('m-body').querySelectorAll('.m-row[data-i]').forEach((row) => {
       const m = state.members[Number(row.dataset.i)]; if (!m) return;
       row.querySelectorAll('[data-f]').forEach((el) => { m[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value.trim(); });
+      if (m.inGameId && isZ4()) m.inGameId = m.inGameId.toUpperCase();
     });
+    state.profile = state.profile || {};
+    $('m-leader').querySelectorAll('[data-p]').forEach((el) => { state.profile[el.dataset.p] = el.value.trim(); });
   }
 
   function addMembers(rows, focus) {
     pullMembers();
-    const max = (state.memMeta && state.memMeta.max) || 100;
-    // ID ที่มีอยู่แล้วในรายชื่อ → อัปเดต Level/ชื่อ · ID ซ้ำกันเองในข้อมูลที่วาง → เพิ่มทั้งคู่ให้ขึ้นเตือนซ้ำ (ไม่ทับเงียบ)
+    const max = (state.memMeta && state.memMeta.max) || 100, z4 = isZ4();
+    const keyOf = (m) => (z4 ? String(m.inGameId || '') : String(m.charName || '') + '|' + String(m.server || '')).toLowerCase();
+    // คนที่มีอยู่แล้ว → อัปเดต · คนซ้ำกันเองในข้อมูลที่วาง → เพิ่มทั้งคู่ให้ขึ้นเตือน (ไม่ทับเงียบ)
     const have = {};
-    state.members.forEach((m) => { if (m.inGameId) have[String(m.inGameId).toLowerCase()] = m; });
+    state.members.forEach((m) => { const k = keyOf(m); if (k && k !== '|') have[k] = m; });
     let added = 0, updated = 0, over = 0;
     rows.forEach((r) => {
-      const k = String(r.inGameId || '').toLowerCase();
-      if (k && have[k]) { Object.assign(have[k], r); updated++; return; }
+      const k = keyOf(r);
+      if (k && k !== '|' && have[k]) { Object.assign(have[k], r); updated++; return; }
       if (state.members.length >= max) { over++; return; }
-      state.members.push(Object.assign({ charName: '', inGameId: '', level: '', role: 'member', discord: false }, r));
+      state.members.push(Object.assign({ charName: '', inGameId: '', level: '', role: 'member', server: '', cute: false }, r));
       added++;
     });
     setMemDirty(true); renderMembers();
-    if (focus) { const ins = $('m-body').querySelectorAll('.m-row[data-i] input[data-f="charName"]'); if (ins.length) ins[ins.length - 1].focus(); }
+    if (focus) { const ins = $('m-body').querySelectorAll('.m-row[data-i] input[data-f]'); if (ins.length) ins[ins.length - (isZ4() ? 3 : 2)].focus(); }
     return { added, updated, over };
   }
 
+  const roleOf = (s) => /หัวหน้ากิลด์|^หัวหน้า|head|leader|master/i.test(s) && !/รอง|sub|deputy|vice/i.test(s) ? 'leader' : /รอง|deputy|sub|vice/i.test(s) ? 'deputy' : 'member';
+  const serverOf = (s) => ((state.memMeta && state.memMeta.servers) || []).find((x) => x.toLowerCase() === String(s || '').trim().toLowerCase()) || '';
+  const num = (s) => Number(String(s == null ? '' : s).replace(/[^\d]/g, ''));
+
   /**
-   * แปลงตารางเป็นรายชื่อ: คอลัมน์ ชื่อตัวละคร | EXE Number | Level | ตำแหน่ง? | Discord?
-   * ข้ามแถวหัวตาราง (Level ไม่ใช่ตัวเลข) · คั่นด้วย Tab (Excel) หรือ , (CSV)
+   * แปลงตารางเป็นรายชื่อ — รองรับ 2 แบบ
+   * 1) ไฟล์กิลด์เดิม: หาแถวหัวตาราง (EXE Nunber / ชื่อตัวละคร / เลเวลปัจจุบัน / ตำแหน่ง / Server) เอง + อ่าน "ข้อมูลหัวกิลด์"
+   * 2) วางตรง ๆ ไม่มีหัวตาราง: Zone4 = EXE | ชื่อ | Level | ตำแหน่ง · TOSM = ชื่อ | Level | Server
    */
-  function parseMemberRows(rows) {
-    const roleOf = (s) => /หัวหน้า|leader|master/i.test(s) ? 'leader' : /รอง|deputy|sub/i.test(s) ? 'deputy' : 'member';
-    return rows.map((c) => c.map((x) => String(x == null ? '' : x).trim()))
-      .filter((c) => c.length >= 3 && c[0] && /^\d+$/.test(c[2].replace(/[^\d]/g, '') ) && c[2].replace(/[^\d]/g, ''))
-      .map((c) => ({ charName: c[0].slice(0, 60), inGameId: c[1].slice(0, 40), level: Number(c[2].replace(/[^\d]/g, '')),
-        role: roleOf(c[3] || ''), discord: /^(y|yes|true|1|✓|มี|ใช่|อยู่)/i.test(c[4] || '') }));
+  function parseGuildTable(rows) {
+    rows = rows.map((c) => (c || []).map((x) => String(x == null ? '' : x).trim()));
+    const out = { members: [], profile: null };
+    // ข้อมูลหัวกิลด์: แถวที่มี "ชื่อ - นามสกุล" แล้วแถวถัดไปเป็นค่า
+    for (let i = 0; i < rows.length - 1; i++) {
+      const h = rows[i], ci = h.findIndex((c) => /ชื่อ\s*-\s*นามสกุล/.test(c));
+      if (ci < 0) continue;
+      const v = rows[i + 1], at = (re) => { const j = h.findIndex((c) => re.test(c)); return j >= 0 ? v[j] || '' : ''; };
+      out.profile = { leaderName: at(/ชื่อ\s*-\s*นามสกุล/), leaderNick: at(/ชื่อเล่น/), leaderPhone: at(/เบอร์/), leaderFb: at(/facebook/i) || (v.find((x) => /facebook\.com/i.test(x)) || '') };
+      break;
+    }
+    // หัวตารางรายชื่อ
+    let hi = rows.findIndex((r) => r.some((c) => /ชื่อตัวละคร|character/i.test(c)) && r.some((c) => /เลเวล|level|lv/i.test(c)));
+    if (hi >= 0) {
+      const h = rows[hi], col = (re) => h.findIndex((c) => re.test(c));
+      const cExe = col(/exe/i), cName = col(/ชื่อตัวละคร|character/i), cLv = col(/เลเวล|level|lv/i), cRole = col(/ตำแหน่ง|position|role/i), cSrv = col(/sever|server|เซิร์ฟ/i);
+      for (let i = hi + 1; i < rows.length; i++) {
+        const r = rows[i], name = r[cName] || '', lv = num(r[cLv]);
+        if (!name || !lv) continue;
+        out.members.push({ charName: name.slice(0, 60), inGameId: cExe >= 0 ? String(r[cExe] || '').toUpperCase().slice(0, 60) : '', level: lv,
+          role: cRole >= 0 ? roleOf(r[cRole] || '') : 'member', server: cSrv >= 0 ? serverOf(r[cSrv]) : '' });
+      }
+      return out;
+    }
+    const z4 = isZ4();
+    rows.forEach((c) => {
+      if (z4 && c.length >= 3 && c[0] && c[1] && num(c[2])) out.members.push({ inGameId: c[0].toUpperCase().slice(0, 60), charName: c[1].slice(0, 60), level: num(c[2]), role: roleOf(c[3] || '') });
+      else if (!z4 && c.length >= 2 && c[0] && num(c[1])) out.members.push({ charName: c[0].slice(0, 60), level: num(c[1]), server: serverOf(c[2]) });
+    });
+    return out;
   }
   function splitTable(text) {
     return String(text || '').split(/\r?\n/).filter((l) => l.trim()).map((l) => l.indexOf('\t') >= 0 ? l.split('\t') : l.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((s) => s.replace(/^"|"$/g, '')));
   }
-  function memberImportResult(r, src) {
-    if (!r.added && !r.updated) return toast('ไม่พบรายชื่อที่อ่านได้ — ต้องมี 3 คอลัมน์: ชื่อตัวละคร | EXE Number | Level', true);
-    toast(`${src}: เพิ่ม ${r.added} คน` + (r.updated ? ` · อัปเดต ${r.updated} คน (EXE Number เดิม)` : '') + ' — กด 💾 บันทึกรายชื่อ');
+  function applyParsed(p, src) {
+    if (p.profile && (p.profile.leaderName || p.profile.leaderPhone)) {
+      $('m-leader').querySelectorAll('[data-p]').forEach((el) => { if (p.profile[el.dataset.p] && !el.value.trim()) el.value = p.profile[el.dataset.p]; });
+    }
+    const r = addMembers(p.members);
+    if (!r.added && !r.updated && !(p.profile && p.profile.leaderName)) return toast('ไม่พบรายชื่อที่อ่านได้ — ' + (isZ4() ? 'ต้องมี EXE Number | ชื่อตัวละคร | Level' : 'ต้องมี ชื่อตัวละคร | Level | Server'), true);
+    toast(`${src}: เพิ่ม ${r.added} คน` + (r.updated ? ` · อัปเดต ${r.updated} คน` : '') + (p.profile && p.profile.leaderName ? ' · อ่านข้อมูลหัวกิลด์แล้ว' : '') + ' — ตรวจแล้วกด 💾 บันทึก');
     if (r.over) toast(`⚠️ เกิน ${state.memMeta.max} คน — ข้าม ${r.over} คน`, true);
   }
 
   function openMemberPaste() {
-    const o = document.createElement('div');
+    const z4 = isZ4(), o = document.createElement('div');
     o.className = 'overlay';
     o.innerHTML = `<div class="card help" role="dialog" aria-modal="true"><div class="help-head"><h2>📋 วางรายชื่อจาก Excel</h2><button type="button" class="icon x" aria-label="ปิด">✕</button></div>
-      <p class="muted">Copy จาก Excel / Google Sheets มาวางได้เลย — เรียงคอลัมน์: <b>ชื่อตัวละคร · EXE Number · Level</b> · (ตำแหน่ง · Discord ไม่บังคับ) · มีแถวหัวตารางก็ได้</p>
-      <textarea rows="9" placeholder="Somchai&#9;10234&#9;55&#10;Nina&#9;10235&#9;42&#9;รอง"></textarea>
+      <p class="muted">Copy จาก Excel / Google Sheets มาวางได้เลย — เรียงคอลัมน์: <b>${z4 ? 'EXE Number · ชื่อตัวละคร · เลเวล · ตำแหน่ง' : 'ชื่อตัวละคร · เลเวล · Server'}</b> · มีแถวหัวตารางก็ได้ (ระบบหาคอลัมน์ให้เอง)</p>
+      <textarea rows="9" placeholder="${z4 ? 'N0JXB57ENOQNCOKKDKICZUH76&#9;SuperPauLa&#9;65&#9;Head Guild' : 'Nyla&#9;210&#9;Laima'}"></textarea>
       <div class="note" data-prev></div><button type="button" class="btn" data-ok>เพิ่มลงรายชื่อ</button></div>`;
     const ta = o.querySelector('textarea'), prev = o.querySelector('[data-prev]');
-    ta.oninput = () => { prev.textContent = `อ่านได้ ${parseMemberRows(splitTable(ta.value)).length} คน`; };
+    ta.oninput = () => { prev.textContent = `อ่านได้ ${parseGuildTable(splitTable(ta.value)).members.length} คน`; };
     const close = () => o.remove();
     o.querySelector('.x').onclick = close;
     onBackdrop(o, close);
-    o.querySelector('[data-ok]').onclick = () => { memberImportResult(addMembers(parseMemberRows(splitTable(ta.value))), 'วางจาก Excel'); close(); };
+    o.querySelector('[data-ok]').onclick = () => { applyParsed(parseGuildTable(splitTable(ta.value)), 'วางจาก Excel'); close(); };
     document.body.appendChild(o);
     ta.focus();
   }
 
+  /** อัปโหลดไฟล์กิลด์เดิม (.xlsx/.csv) — อ่านทุกชีต หาแถวหัวตารางเอง */
   async function importMemberFile(file) {
     if (!file) return;
     try {
-      let rows;
+      let rows = [];
       if (/\.(xlsx|xls)$/i.test(file.name)) {
         const XLSX = await loadSheetJs();
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false });
-      } else rows = splitTable(await file.text());
-      memberImportResult(addMembers(parseMemberRows(rows)), `นำเข้า "${file.name}"`);
+        let best = null;
+        wb.SheetNames.forEach((sn) => {
+          const r = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' });
+          const p = parseGuildTable(r);
+          if (!best || p.members.length > best.members.length) best = p;
+        });
+        applyParsed(best || { members: [] }, `อัปโหลด "${file.name}"`);
+      } else { rows = splitTable(await file.text()); applyParsed(parseGuildTable(rows), `อัปโหลด "${file.name}"`); }
     } catch (err) { toast(err.message, true); }
     finally { $('m-file').value = ''; }
   }
@@ -374,13 +466,12 @@
     const btn = $('m-save');
     btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก…';
     try {
-      const d = await api('saveMembers', { members: state.members });
-      state.memMeta = d;
-      state.members = d.members.map((m) => Object.assign({}, m));
+      const d = await api('saveMembers', { members: state.members, profile: state.profile, totalMembers: isZ4() ? '' : $('m-total').value });
+      applyMemberData(d);
       setMemDirty(false); renderMembers();
       toast(d.changes ? `✅ บันทึกแล้ว (${d.changes} รายการเปลี่ยนแปลง)` : '✅ บันทึกแล้ว ไม่มีอะไรเปลี่ยน');
     } catch (err) { toast(err.message, true); setMemDirty(true); }
-    finally { btn.textContent = '💾 บันทึกรายชื่อ'; if (state.memDirty) btn.disabled = false; }
+    finally { btn.textContent = '💾 บันทึกข้อมูลกิลด์'; if (state.memDirty) btn.disabled = false; }
   }
 
   function startRefresh() {
@@ -659,6 +750,8 @@
     const n = p.ok.length + p.imgs.length;
     if (!n) return toast('กรุณาใส่ลิงก์ (http:// หรือ https://) หรือเพิ่มรูปหลักฐานอย่างน้อย 1 รายการ', true);
     if (n > MAX_LINKS) return toast('ส่งได้ครั้งละไม่เกิน ' + MAX_LINKS + ' รายการ (ลิงก์ + รูป)', true);
+    const gi = state.guildInfo;
+    if (gi && !gi.complete && !confirm('⚠️ ข้อมูลกิลด์ยังไม่ครบ:\n• ' + gi.missing.join('\n• ') + '\n\nทีมงานใช้ข้อมูลนี้ตรวจงานและส่งรางวัล — ยืนยันส่ง Report ต่อเลยไหม?')) return;
     btn.disabled = true; state.busy = true;
     btn.textContent = p.imgs.length ? `กำลังอัปโหลด ${n} รายการ…` : (n > 1 ? `กำลังส่ง ${n} ลิงก์…` : 'กำลังส่ง…');
     const slow = setTimeout(() => { btn.textContent = 'กำลังบันทึก… อาจใช้เวลาสักครู่ อย่าเพิ่งปิดหน้านี้'; }, 3000);
@@ -1052,6 +1145,24 @@
   }
 
   // ---------- theme ----------
+  // สีเน้น 20 สี (เหมือน CTM Next) — จำในเครื่องนี้
+  const ACCENTS = ['#c8102e', '#e03131', '#e8590c', '#f08c00', '#d4a017', '#5c940d', '#2b8a3e', '#0ca678', '#1098ad', '#1971c2',
+    '#364fc7', '#5f3dc4', '#862e9c', '#c2255c', '#d6336c', '#a0522d', '#495057', '#212529', '#0b7285', '#7048e8'];
+  function applyAccent(c) {
+    if (ACCENTS.indexOf(c) < 0) c = ACCENTS[0];
+    document.documentElement.style.setProperty('--accent', c);
+    const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = c;
+    store.set('rgs_accent', c);
+  }
+  function openAccent() {
+    const old = document.querySelector('.accent-pop'); if (old) return old.remove();
+    const pop = document.createElement('div'), cur = store.get('rgs_accent') || ACCENTS[0];
+    pop.className = 'accent-pop';
+    pop.innerHTML = ACCENTS.map((c) => `<button type="button" style="background:${c}" data-c="${c}" class="${c === cur ? 'on' : ''}" aria-label="สี ${c}"></button>`).join('');
+    pop.onclick = (e) => { const c = e.target.dataset.c; if (!c) return; applyAccent(c); pop.remove(); };
+    document.body.appendChild(pop);
+    setTimeout(() => document.addEventListener('click', function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', off); } }), 0);
+  }
   function applyTheme(t) {
     document.documentElement.classList.toggle('dark', t === 'dark');
     $('b-theme').querySelector('em').textContent = t === 'dark' ? '☀️' : '🌙';
@@ -1078,8 +1189,17 @@
     logout() { return true; },
     memberList: [{ id: 'M1', charName: 'Somchai', inGameId: '10234', level: 55, role: 'leader', discord: true, eligible: true, updatedAt: new Date(Date.now() - 40 * 864e5).toISOString() },
       { id: 'M2', charName: 'Nina', inGameId: '10235', level: 31, role: 'member', discord: false, eligible: false, updatedAt: new Date(Date.now() - 40 * 864e5).toISOString() }],
-    members() { const l = this.memberList; return { members: l, levelMin: 40, max: 100, count: l.length, eligible: l.filter((m) => m.level >= 40).length, updatedAt: l.reduce((a, m) => m.updatedAt > a ? m.updatedAt : a, '') }; },
+    profile: {},
+    info() {
+      const z4 = this.guild.game === 'z4', p = this.profile, l = this.memberList, cute = l.filter((m) => m.cute).length;
+      const steps = [{ key: 'leader', label: 'ข้อมูลหัวหน้ากิลด์ (ชื่อ · ชื่อเล่น · เบอร์ · Facebook)', ok: !!(p.leaderName && p.leaderNick && p.leaderPhone && p.leaderFb) },
+        z4 ? { key: 'members', label: 'รายชื่อสมาชิก + EXE Number', ok: l.length > 0 && l.every((m) => m.inGameId), count: l.length } : { key: 'total', label: 'จำนวนสมาชิกกิลด์ทั้งหมด', ok: Number(p.totalMembers) > 0 },
+        z4 ? { key: 'cute', label: 'เลือก Cute Gang เดือนนี้ 5 คน', ok: cute >= 5, count: cute } : { key: 'members', label: 'รายชื่อสมาชิก + Server', ok: l.length > 0 && l.every((m) => m.server), count: l.length }];
+      return { complete: steps.every((s) => s.ok), missing: steps.filter((s) => !s.ok).map((s) => s.label), steps, done: steps.filter((s) => s.ok).length, cute };
+    },
+    members() { const l = this.memberList; return { game: this.guild.game, members: l, profile: this.profile, levelMin: 40, max: 100, roles: ['leader', 'deputy', 'member'], servers: ['Laima', 'Vakarine', 'Giltine', 'Austeja', 'Jurate'], cuteMax: 5, count: l.length, eligible: l.filter((m) => m.level >= 40).length, updatedAt: l.reduce((a, m) => m.updatedAt > a ? m.updatedAt : a, ''), info: this.info() }; },
     saveMembers(b) {
+      this.profile = Object.assign({}, b.profile, { totalMembers: b.totalMembers });
       const seen = {};
       b.members.forEach((m, i) => { if (!m.charName && !m.inGameId && !m.level) return; if (!m.charName || !m.inGameId || !Number(m.level)) throw new Error('แถวที่ ' + (i + 1) + ': กรอกให้ครบ'); const k = m.inGameId.toLowerCase(); if (seen[k]) throw new Error('EXE Number ซ้ำ: ' + m.inGameId); seen[k] = 1; });
       this.memberList = b.members.filter((m) => m.charName).map((m) => Object.assign({}, m, { level: Number(m.level), eligible: Number(m.level) >= 40, updatedAt: new Date().toISOString() }));
@@ -1120,6 +1240,8 @@
   // ---------- init ----------
   function init() {
     fillPeriodSelects();
+    applyAccent(store.get('rgs_accent'));
+    $('b-accent').onclick = openAccent;
     applyTheme(store.get('rgs_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
     $('f-login').addEventListener('submit', onLogin);
     $('f-pass').addEventListener('submit', onPass);
@@ -1146,6 +1268,8 @@
     $('m-file').addEventListener('change', () => importMemberFile($('m-file').files[0]));
     $('m-save').onclick = saveMembersNow;
     $('m-body').addEventListener('input', () => setMemDirty(true));
+    $('m-leader').addEventListener('input', () => setMemDirty(true));
+    $('m-total').addEventListener('input', () => { setMemDirty(true); pullMembers(); renderMembers(); });
     // ออกจากช่อง Level/ID → วาดใหม่ให้แถบ Level และเตือน ID ซ้ำอัปเดต
     $('m-body').addEventListener('change', (ev) => { if (ev.target.dataset.f) { pullMembers(); setMemDirty(true); renderMembers(); } });
     $('m-body').addEventListener('click', (ev) => {

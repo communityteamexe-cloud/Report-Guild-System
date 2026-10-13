@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#c3392c">
+<meta name="theme-color" content="#c8102e">
 <title>Exclusive Guild Report</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -100,11 +100,12 @@
       <button class="tab on" data-p="dash"><i>📊</i> คะแนน</button>
       <button class="tab" data-p="send"><i>📤</i> ส่ง Report</button>
       <button class="tab" data-p="hist"><i>🕘</i> ประวัติ</button>
-      <button class="tab" data-p="mem"><i>👥</i> สมาชิก</button>
+      <button class="tab" data-p="mem"><i>🛡️</i> ข้อมูลกิลด์<b class="tab-dot" id="mem-dot" hidden></b></button>
     </nav>
     <div class="menu">
       <button class="icon lbl open-help" title="วิธีใช้งาน">❓<span>วิธีใช้</span></button>
       <button class="icon lbl" id="b-theme" title="สลับโหมดมืด"><em>🌙</em><span>ธีม</span></button>
+      <button class="icon lbl" id="b-accent" title="เปลี่ยนสีเน้น">🎨<span>สี</span></button>
       <button class="icon lbl" id="b-pass" title="เปลี่ยนรหัสผ่าน">🔑<span>รหัสผ่าน</span></button>
       <button class="icon lbl" id="b-out" title="ออกจากระบบ">🚪<span>ออก</span></button>
     </div>
@@ -113,6 +114,7 @@
   <main class="wrap">
     <!-- Dashboard -->
     <div class="page on" id="p-dash">
+      <div id="d-setup"></div>
       <div id="d-notice"></div>
       <div class="head">
         <h2>คะแนนของกิลด์</h2>
@@ -166,6 +168,7 @@
         <form class="card" id="f-send" novalidate>
           <h2>ส่ง Report</h2>
           <p class="muted" id="s-sub"></p>
+          <div id="s-guildwarn"></div>
           <div id="s-deadline"></div>
           <label for="s-mission">Mission</label>
           <select id="s-mission" required></select>
@@ -199,22 +202,41 @@
 
     <!-- Members -->
     <div class="page" id="p-mem">
-      <div class="card">
+      <div id="m-notice"></div>
+      <!-- 1 · หัวหน้ากิลด์ -->
+      <div class="card m-sec">
+        <div class="eyebrow">1 · ข้อมูลหัวหน้ากิลด์</div>
+        <div class="m-grid2" id="m-leader">
+          <label>ชื่อ - นามสกุล <i>*</i><input data-p="leaderName" maxlength="80" autocomplete="name"></label>
+          <label>ชื่อเล่น <i>*</i><input data-p="leaderNick" maxlength="40"></label>
+          <label>เบอร์โทรติดต่อ <i>*</i><input data-p="leaderPhone" maxlength="30" inputmode="tel" placeholder="08x-xxx-xxxx" autocomplete="tel"></label>
+          <label>Link Facebook <i>*</i><input data-p="leaderFb" maxlength="300" inputmode="url" placeholder="https://www.facebook.com/..."></label>
+        </div>
+        <p class="note muted">🔒 เห็นได้เฉพาะกิลด์นี้และทีมงาน · ไม่แสดงให้กิลด์อื่น</p>
+      </div>
+      <!-- จำนวนสมาชิกทั้งหมด (TOSM / 9Yin) -->
+      <div class="card m-sec m-total" id="m-total-card" hidden>
+        <div class="eyebrow">2 · จำนวนสมาชิกกิลด์ทั้งหมด <span class="pill rejected">สำคัญ</span></div>
+        <div class="m-total-row"><input id="m-total" type="number" min="0" max="9999" inputmode="numeric" placeholder="0"><span class="muted">คน (ตามในเกม) · ใช้คำนวณจำนวนไอเทม Code ที่ทีมงานส่งให้</span></div>
+        <p class="note" id="m-total-cmp"></p>
+      </div>
+      <!-- รายชื่อสมาชิก -->
+      <div class="card m-sec">
         <div class="head">
-          <div><h2>รายชื่อสมาชิกกิลด์</h2><p class="muted" id="m-sub" style="margin:2px 0 0"></p></div>
+          <div><div class="eyebrow" id="m-list-t">2 · รายชื่อสมาชิก</div><p class="muted" id="m-sub" style="margin:2px 0 0"></p></div>
           <div class="row-btns">
             <button type="button" class="btn ghost add" id="m-add">＋ เพิ่มสมาชิก</button>
             <button type="button" class="btn ghost add" id="m-paste">📋 วางจาก Excel</button>
-            <button type="button" class="btn ghost add" id="m-import">📂 นำเข้าไฟล์</button>
+            <button type="button" class="btn add" id="m-import">📂 อัปโหลดไฟล์กิลด์เดิม</button>
             <input type="file" id="m-file" accept=".csv,.txt,.xlsx,.xls" hidden>
           </div>
         </div>
-        <div id="m-notice"></div>
         <div class="m-stats" id="m-stats"></div>
         <div class="m-list" id="m-body"></div>
-        <div class="m-save"><span class="muted" id="m-dirty"></span><button type="button" class="btn" id="m-save">💾 บันทึกรายชื่อ</button></div>
-        <p class="note muted">ทีมงานล็อกรายชื่อทุกวันสุดท้ายของเดือน (23:30) เพื่อใช้แจกรางวัล · ต้องมีชื่อตัวละคร EXE Number และ Level ครบ · แก้ไขทุกครั้งมีบันทึกประวัติ</p>
+        <div id="m-cute"></div>
       </div>
+      <div class="m-save"><span class="muted" id="m-dirty"></span><button type="button" class="btn" id="m-save">💾 บันทึกข้อมูลกิลด์</button></div>
+      <p class="note muted">ทีมงานใช้ข้อมูลนี้ตรวจ Report และส่งรางวัลให้สมาชิก · ล็อกรายชื่อทุกวันสุดท้ายของเดือน 23:30 · แก้ไขทุกครั้งมีบันทึกประวัติ</p>
     </div>
 
     <!-- History -->

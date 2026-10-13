@@ -27,14 +27,19 @@ const HEAD = {
   RankRules: ['Game', 'FromYear', 'SS', 'S'],
   Reports:   ['ReportID', 'CreatedAt', 'YM', 'Email', 'Game', 'GuildNameTH', 'MissionID', 'MissionName', 'Points',
               'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash'],
-  Members:   ['MemberID', 'Email', 'Game', 'GuildID', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'UpdatedAt'],
+  Members:   ['MemberID', 'Email', 'Game', 'GuildID', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'UpdatedAt', 'Server', 'CuteYM'],
+  GuildProfiles: ['Email', 'Game', 'LeaderName', 'LeaderNick', 'LeaderPhone', 'LeaderFB', 'TotalMembers', 'UpdatedAt'],
   MemberLog: ['At', 'Email', 'Action', 'CharName', 'InGameID', 'Detail'],
-  MemberSnapshots: ['YM', 'SnapshotAt', 'Email', 'Game', 'GuildNameTH', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'Eligible']
+  MemberSnapshots: ['YM', 'SnapshotAt', 'Email', 'Game', 'GuildNameTH', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'Eligible', 'Server', 'CuteGang']
 };
 // เกณฑ์ Level ขั้นต่ำที่ได้รับ Benefit (ชีต 09) · สมาชิกสูงสุดต่อกิลด์
 const LEVEL_MIN = { z4: 40, tosm: 100, '9yin': 25 };
 const MAX_MEMBERS = 100;
 const MEMBER_ROLES = { leader: 'หัวหน้า', deputy: 'รอง', member: 'สมาชิก' };
+// ข้อมูลกิลด์แยกตามเกม · Zone4 = EXE Number + ตำแหน่ง + Cute Gang 5 คน/เดือน · TOSM/9Yin = Server + จำนวนสมาชิกทั้งหมด
+const TOSM_SERVERS = ['Laima', 'Vakarine', 'Giltine', 'Austeja', 'Jurate'];
+const CUTE_GANG_MAX = 5;
+function isZ4_(game) { return game === 'z4'; }
 const STATUS = { PENDING: 'pending', APPROVED: 'approved', REJECTED: 'rejected' };
 
 // ===================================================================
@@ -211,7 +216,7 @@ const GUILD_ACTIONS = {
   bootstrap: function (g, r) {
     return { guild: publicGuild_(g), missions: missionsFor_(g.Game, ymOf_(r.year, r.month)),
       dashboard: dashboard_(g, Number(r.year), Number(r.month)),
-      reviewed: reviewedSince_(g, Number(r.since) || 0) };
+      reviewed: reviewedSince_(g, Number(r.since) || 0), info: guildCompleteness_(g) };
   },
   changePassword: function (g, r) { return changePassword_(g, r.oldPassword, r.newPassword, r.token); },
   logout: function (g, r) { return logout_(r.token); },
@@ -220,7 +225,7 @@ const GUILD_ACTIONS = {
   dashboard: function (g, r) { return dashboard_(g, Number(r.year), Number(r.month)); },
   history: function (g, r) { return history_(g, Number(r.year), Number(r.month)); },
   members: function (g) { return membersOf_(g); },
-  saveMembers: function (g, r) { return saveMembers_(g, r.members); }
+  saveMembers: function (g, r) { return saveMembers_(g, r.members, r.profile, r.totalMembers); }
 };
 
 const ADMIN_ACTIONS = {
@@ -237,6 +242,7 @@ const ADMIN_ACTIONS = {
   adminSetRankRule: function (r) { return setRankRule_(r.game, Number(r.fromYear), Number(r.ss), Number(r.s)); },
   adminLeaderboard: function (r) { return leaderboard_(r.game, Number(r.year), r.month ? Number(r.month) : null); },
   adminListMembers: function (r) { return adminMembers_(r.game, r.email); },
+  adminGuildInfo: function (r) { const g = findGuild_(r.email); if (!g) throw new Error('ไม่พบกิลด์ ' + r.email); return membersOf_(g); },
   adminMemberLog: function (r) { return memberLog_(r.email, Number(r.limit) || 200); },
   adminMemberSnapshot: function (r) { return memberSnapshot_(r.email, ymOf_(r.year, r.month)); }
 };
@@ -731,100 +737,189 @@ function reportOut_(x) {
 // ===================================================================
 
 function memberOut_(x, game) {
-  const lv = Number(x.Level) || 0;
+  const lv = Number(x.Level) || 0, ym = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
   return { id: String(x.MemberID), charName: String(x.CharName || ''), inGameId: String(x.InGameID || '').replace(/^'/, ''),
     level: lv, role: x.Role || 'member', discord: truthy_(x.Discord), eligible: lv >= (LEVEL_MIN[game] || 0),
+    server: String(x.Server || ''), cute: isZ4_(game) && ymStr_(x.CuteYM) === ym,
     updatedAt: x.UpdatedAt instanceof Date ? x.UpdatedAt.toISOString() : String(x.UpdatedAt || '') };
 }
 
-/** รายชื่อของกิลด์นี้ + สรุป (ใช้ทั้งเว็บกิลด์และ CTM) */
-function membersOf_(g) {
-  const list = readRows_('Members').filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
-  const last = list.reduce(function (m, x) { return x.updatedAt > m ? x.updatedAt : m; }, '');
-  return { members: list, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
-    count: list.length, eligible: list.filter(function (x) { return x.eligible; }).length, updatedAt: last };
+function profileOf_(g) {
+  const p = readRows_('GuildProfiles').filter(function (x) { return x.Email === g.Email; })[0] || {};
+  return { leaderName: String(p.LeaderName || ''), leaderNick: String(p.LeaderNick || ''), leaderPhone: String(p.LeaderPhone || '').replace(/^'/, ''),
+    leaderFb: String(p.LeaderFB || ''), totalMembers: p.TotalMembers === '' || p.TotalMembers == null ? null : Number(p.TotalMembers),
+    updatedAt: p.UpdatedAt instanceof Date ? p.UpdatedAt.toISOString() : String(p.UpdatedAt || '') };
 }
 
 /**
- * บันทึกรายชื่อทั้งชุดของกิลด์ (แทนที่ของเดิม) · เทียบของเดิมเพื่อเขียนประวัติ เพิ่ม/ลบ/แก้
- * ตรวจ: ชื่อตัวละคร + EXE Number + Level บังคับ · ID ซ้ำในกิลด์ไม่ได้ · ไม่เกิน MAX_MEMBERS
+ * ข้อมูลกิลด์ครบไหม (ใช้ทั้งการ์ดเตือนเว็บกิลด์ + ป้ายเตือนตอนทีมอนุมัติใน CTM)
+ * Zone4: หัวหน้า · รายชื่อ (มี EXE ครบ) · Cute Gang 5 คน/เดือน · TOSM/9Yin: หัวหน้า · จำนวนสมาชิกทั้งหมด · รายชื่อ (มี Server ครบ)
  */
-function saveMembers_(g, input) {
+function completenessOf_(game, profile, members) {
+  const z4 = isZ4_(game), missing = [];
+  const leaderOk = !!(profile.leaderName && profile.leaderNick && profile.leaderPhone && profile.leaderFb);
+  if (!leaderOk) missing.push('ข้อมูลหัวหน้ากิลด์');
+  const listOk = members.length > 0 && members.every(function (m) { return z4 ? m.inGameId : m.server; });
+  if (!members.length) missing.push('รายชื่อสมาชิก');
+  else if (!listOk) missing.push(z4 ? 'EXE Number ไม่ครบ' : 'Server ไม่ครบ');
+  const steps = [{ key: 'leader', label: 'ข้อมูลหัวหน้ากิลด์', ok: leaderOk },
+    { key: 'members', label: z4 ? 'รายชื่อสมาชิก (EXE Number · ตัวละคร · Level · ตำแหน่ง)' : 'รายชื่อสมาชิก (ตัวละคร · Level · Server)', ok: listOk, count: members.length }];
+  let cute = null;
+  if (z4) {
+    cute = members.filter(function (m) { return m.cute; }).length;
+    if (cute < CUTE_GANG_MAX) missing.push('Cute Gang ' + cute + '/' + CUTE_GANG_MAX);
+    steps.push({ key: 'cute', label: 'เลือก Cute Gang ' + CUTE_GANG_MAX + ' คน ประจำเดือน', ok: cute >= CUTE_GANG_MAX, count: cute });
+  } else {
+    const totOk = profile.totalMembers > 0;
+    if (!totOk) missing.push('จำนวนสมาชิกทั้งหมด');
+    steps.push({ key: 'total', label: 'จำนวนสมาชิกกิลด์ทั้งหมด', ok: totOk });
+  }
+  return { complete: !missing.length, missing: missing, steps: steps, done: steps.filter(function (s) { return s.ok; }).length, cute: cute };
+}
+
+function guildCompleteness_(g) {
+  const members = readRows_('Members').filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
+  return completenessOf_(g.Game, profileOf_(g), members);
+}
+
+/** ข้อมูลกิลด์ทั้งหมด (เว็บกิลด์ + CTM) */
+function membersOf_(g) {
+  const list = readRows_('Members').filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
+  const profile = profileOf_(g);
+  const last = list.reduce(function (m, x) { return x.updatedAt > m ? x.updatedAt : m; }, profile.updatedAt || '');
+  return { game: g.Game, members: list, profile: profile, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
+    servers: isZ4_(g.Game) ? [] : TOSM_SERVERS, cuteMax: isZ4_(g.Game) ? CUTE_GANG_MAX : 0,
+    count: list.length, eligible: list.filter(function (x) { return x.eligible; }).length, updatedAt: last,
+    info: completenessOf_(g.Game, profile, list) };
+}
+
+/**
+ * บันทึกข้อมูลกิลด์ทั้งชุด: หัวหน้า · จำนวนสมาชิกทั้งหมด (TOSM/9Yin) · รายชื่อ (แทนที่ของเดิม + เขียนประวัติ)
+ * Zone4: EXE Number บังคับ · ซ้ำไม่ได้ · Cute Gang ≤ 5 เฉพาะคนผ่านเกณฑ์ Level · TOSM/9Yin: Server ต้องอยู่ในรายการ · ตัวละคร+Server ซ้ำไม่ได้
+ */
+function saveMembers_(g, input, profileIn, totalIn) {
   if (!Array.isArray(input)) throw new Error('ข้อมูลสมาชิกไม่ถูกต้อง');
   if (input.length > MAX_MEMBERS) throw new Error('สมาชิกได้สูงสุด ' + MAX_MEMBERS + ' คนต่อกิลด์');
+  const z4 = isZ4_(g.Game), min = LEVEL_MIN[g.Game] || 0, ym = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
   const seen = {}, clean = [];
+  let cute = 0;
   input.forEach(function (m, i) {
+    m = m || {};
     const n = i + 1;
-    const charName = String(m && m.charName || '').trim().slice(0, 60);
-    const id = String(m && m.inGameId || '').trim().slice(0, 40);
-    const lv = Number(m && m.level);
-    if (!charName && !id && !(m && m.level)) return;              // แถวว่าง → ข้าม
+    const charName = String(m.charName || '').trim().slice(0, 60);
+    const exe = String(m.inGameId || '').trim().slice(0, 60);
+    const server = String(m.server || '').trim();
+    const lv = Number(m.level);
+    if (!charName && !exe && !m.level) return;                       // แถวว่าง → ข้าม
     if (!charName) throw new Error('แถวที่ ' + n + ': กรอกชื่อตัวละคร');
-    if (!id) throw new Error('แถวที่ ' + n + ' (' + charName + '): กรอก EXE Number');
+    if (z4 && !exe) throw new Error('แถวที่ ' + n + ' (' + charName + '): กรอก EXE Number');
     if (!(lv >= 1 && lv <= 9999) || Math.floor(lv) !== lv) throw new Error('แถวที่ ' + n + ' (' + charName + '): Level ต้องเป็นตัวเลข 1–9999');
-    const key = id.toLowerCase();
-    if (seen[key]) throw new Error('EXE Number "' + id + '" ซ้ำกัน (แถว ' + seen[key] + ' และ ' + n + ')');
+    if (!z4 && TOSM_SERVERS.indexOf(server) < 0) throw new Error('แถวที่ ' + n + ' (' + charName + '): เลือก Server');
+    const key = z4 ? exe.toLowerCase() : (charName + '|' + server).toLowerCase();
+    if (seen[key]) throw new Error((z4 ? 'EXE Number "' + exe + '"' : 'ตัวละคร "' + charName + '" (' + server + ')') + ' ซ้ำกัน (แถว ' + seen[key] + ' และ ' + n + ')');
     seen[key] = n;
-    clean.push({ id: String(m.id || ''), charName: charName, inGameId: id, level: lv,
-      role: MEMBER_ROLES[m.role] ? m.role : 'member', discord: !!m.discord });
+    const isCute = z4 && !!m.cute && lv >= min;
+    if (isCute) cute++;
+    clean.push({ charName: charName, inGameId: z4 ? exe : '', level: lv, server: z4 ? '' : server,
+      role: MEMBER_ROLES[m.role] ? m.role : 'member', discord: !!m.discord, cute: isCute, key: key });
   });
+  if (cute > CUTE_GANG_MAX) throw new Error('Cute Gang เลือกได้สูงสุด ' + CUTE_GANG_MAX + ' คน (เลือกมา ' + cute + ')');
+  const p = profileIn || {};
+  const total = totalIn === '' || totalIn == null ? '' : Number(totalIn);
+  if (total !== '' && !(total >= 0 && total <= 9999)) throw new Error('จำนวนสมาชิกทั้งหมดต้องเป็นตัวเลข');
 
   return withLock_(function () {
+    const now = new Date(), logs = [];
+    // หัวหน้ากิลด์ + จำนวนสมาชิกทั้งหมด
+    const psh = getSheet_('GuildProfiles'), pdata = psh.getDataRange().getValues(), pcol = indexMap_(pdata[0]);
+    const prow = { Email: g.Email, Game: g.Game, LeaderName: String(p.leaderName || '').trim().slice(0, 80), LeaderNick: String(p.leaderNick || '').trim().slice(0, 40),
+      LeaderPhone: "'" + String(p.leaderPhone || '').trim().slice(0, 30), LeaderFB: String(p.leaderFb || '').trim().slice(0, 300), TotalMembers: total, UpdatedAt: now };
+    let pi = -1;
+    for (let i = 1; i < pdata.length; i++) if (pdata[i][pcol.Email] === g.Email) { pi = i; break; }
+    const pvals = pdata[0].map(function (h) { return prow[h] === undefined ? '' : prow[h]; });
+    if (pi > 0) {
+      const old = pdata[pi];
+      if (String(old[pcol.LeaderName]) !== prow.LeaderName || String(old[pcol.LeaderPhone]).replace(/^'/, '') !== prow.LeaderPhone.slice(1) ||
+          String(old[pcol.LeaderNick]) !== prow.LeaderNick || String(old[pcol.LeaderFB]) !== prow.LeaderFB) logs.push(['แก้ไข', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName + ' (' + prow.LeaderNick + ')']);
+      if (String(old[pcol.TotalMembers]) !== String(total)) logs.push(['แก้ไข', 'จำนวนสมาชิกทั้งหมด', '', (old[pcol.TotalMembers] || '—') + ' → ' + (total === '' ? '—' : total)]);
+      psh.getRange(pi + 1, 1, 1, pvals.length).setValues([pvals]);
+    } else if (prow.LeaderName || prow.LeaderNick || prow.LeaderFB || total !== '') {
+      psh.appendRow(pvals); logs.push(['เพิ่ม', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName]);
+    }
+    clearRows_('GuildProfiles');
+
+    // รายชื่อ
     const sh = getSheet_('Members');
     const data = sh.getDataRange().getValues();
     const head = data[0], col = indexMap_(head);
     const others = [], old = {};
+    const keyOf = function (r) { return z4 ? String(r[col.InGameID]).replace(/^'/, '').toLowerCase() : (String(r[col.CharName]) + '|' + String(r[col.Server] || '')).toLowerCase(); };
     data.slice(1).forEach(function (r) {
       if (r.join('') === '') return;
-      if (r[col.Email] === g.Email) old[String(r[col.InGameID]).replace(/^'/, '').toLowerCase()] = r; else others.push(r);
+      if (r[col.Email] === g.Email) old[keyOf(r)] = r; else others.push(r);
     });
-    const now = new Date(), logs = [];
     const rows = clean.map(function (m) {
-      const prev = old[m.inGameId.toLowerCase()];
-      if (!prev) logs.push(['เพิ่ม', m.charName, m.inGameId, 'Lv ' + m.level]);
+      const prev = old[m.key];
+      let changed = !prev;
+      if (!prev) logs.push(['เพิ่ม', m.charName, m.inGameId || m.server, 'Lv ' + m.level]);
       else {
         const diff = [];
         if (String(prev[col.CharName]) !== m.charName) diff.push('ชื่อ ' + prev[col.CharName] + ' → ' + m.charName);
         if (Number(prev[col.Level]) !== m.level) diff.push('Lv ' + prev[col.Level] + ' → ' + m.level);
         if (String(prev[col.Role] || 'member') !== m.role) diff.push('ตำแหน่ง ' + (MEMBER_ROLES[prev[col.Role]] || 'สมาชิก') + ' → ' + MEMBER_ROLES[m.role]);
-        if (diff.length) logs.push(['แก้ไข', m.charName, m.inGameId, diff.join(' · ')]);
-        delete old[m.inGameId.toLowerCase()];
+        const wasCute = ymStr_(prev[col.CuteYM]) === ym;
+        if (z4 && wasCute !== m.cute) diff.push(m.cute ? 'เลือกเป็น Cute Gang' : 'ยกเลิก Cute Gang');
+        if (diff.length) { logs.push(['แก้ไข', m.charName, m.inGameId || m.server, diff.join(' · ')]); changed = true; }
+        delete old[m.key];
       }
-      const keep = prev && !logs.some(function (l) { return l[2] === m.inGameId; });
       const o = { MemberID: prev ? prev[col.MemberID] : 'M' + Utilities.getUuid().slice(0, 8), Email: g.Email, Game: g.Game,
-        GuildID: "'" + String(g.GuildID).replace(/^'/, ''), CharName: m.charName, InGameID: "'" + m.inGameId, Level: m.level,
-        Role: m.role, Discord: m.discord, UpdatedAt: keep ? prev[col.UpdatedAt] : now };
+        GuildID: "'" + String(g.GuildID).replace(/^'/, ''), CharName: m.charName, InGameID: m.inGameId ? "'" + m.inGameId : '', Level: m.level,
+        Role: m.role, Discord: m.discord, UpdatedAt: changed ? now : prev[col.UpdatedAt], Server: m.server, CuteYM: m.cute ? "'" + ym : '' };
       return head.map(function (h) { return o[h] === undefined ? '' : o[h]; });
     });
-    Object.keys(old).forEach(function (k) { const r = old[k]; logs.push(['ลบ', r[col.CharName], String(r[col.InGameID]).replace(/^'/, ''), 'Lv ' + r[col.Level]]); });
+    Object.keys(old).forEach(function (k) { const r = old[k]; logs.push(['ลบ', r[col.CharName], String(r[col.InGameID] || r[col.Server] || '').replace(/^'/, ''), 'Lv ' + r[col.Level]]); });
 
     const all = others.concat(rows);
     sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), head.length).clearContent();
     if (all.length) sh.getRange(2, 1, all.length, head.length).setValues(all);
     if (logs.length) appendRows_('MemberLog', logs.map(function (l) {
-      return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: "'" + l[2], Detail: l[3] };
+      return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: l[2] ? "'" + l[2] : '', Detail: l[3] };
     }));
     return Object.assign(membersOf_(g), { changes: logs.length });
   });
 }
 
-/** CTM: สมาชิกทุกกิลด์ (หรือกิลด์เดียว) + เตือน ID เดียวกันอยู่หลายกิลด์ในเกมเดียวกัน */
+/** CTM: สมาชิกทุกกิลด์ (หรือกิลด์เดียว) + เตือน EXE Number เดียวกันอยู่หลายกิลด์ในเกมเดียวกัน */
 function adminMembers_(game, email) {
   const guilds = {};
   readRows_('Guilds').forEach(function (g) { guilds[g.Email] = g; });
   const rows = readRows_('Members').filter(function (x) { return (!game || x.Game === game); });
   const owners = {};
   rows.forEach(function (x) {
-    const k = x.Game + '|' + String(x.InGameID).replace(/^'/, '').toLowerCase();
+    const id = String(x.InGameID || '').replace(/^'/, '').toLowerCase(); if (!id) return;
+    const k = x.Game + '|' + id;
     (owners[k] = owners[k] || []).push(x.Email);
   });
   return rows.filter(function (x) { return !email || x.Email === email; }).map(function (x) {
     const o = memberOut_(x, x.Game), g = guilds[x.Email] || {};
     const k = x.Game + '|' + o.inGameId.toLowerCase();
     o.email = x.Email; o.game = x.Game; o.guild = g.NameTH || x.Email;
-    o.alsoIn = (owners[k] || []).filter(function (e) { return e !== x.Email; }).map(function (e) { return (guilds[e] || {}).NameTH || e; });
+    o.alsoIn = o.inGameId ? (owners[k] || []).filter(function (e) { return e !== x.Email; }).map(function (e) { return (guilds[e] || {}).NameTH || e; }) : [];
     return o;
   });
+}
+
+/** ความครบของข้อมูลทุกกิลด์ (CTM ใช้เตือนตอนอนุมัติ) — อ่านชีตรอบเดียว */
+function allCompleteness_() {
+  const guilds = readRows_('Guilds'), members = readRows_('Members'), profiles = readRows_('GuildProfiles'), out = {};
+  guilds.forEach(function (g) {
+    const p = profiles.filter(function (x) { return x.Email === g.Email; })[0];
+    const prof = p ? { leaderName: p.LeaderName, leaderNick: p.LeaderNick, leaderPhone: String(p.LeaderPhone || '').replace(/^'/, ''), leaderFb: p.LeaderFB,
+      totalMembers: p.TotalMembers === '' ? null : Number(p.TotalMembers) } : {};
+    const list = members.filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
+    out[g.Email] = completenessOf_(g.Game, prof, list).missing;
+  });
+  return out;
 }
 
 function memberLog_(email, limit) {
@@ -861,7 +956,7 @@ function snapshotMembers(e) {
   const rows = readRows_('Members').map(function (x) {
     const o = memberOut_(x, x.Game);
     return { YM: "'" + ym, SnapshotAt: now, Email: x.Email, Game: x.Game, GuildNameTH: (guilds[x.Email] || {}).NameTH || '',
-      CharName: o.charName, InGameID: "'" + o.inGameId, Level: o.level, Role: o.role, Discord: o.discord, Eligible: o.eligible };
+      CharName: o.charName, InGameID: o.inGameId ? "'" + o.inGameId : '', Level: o.level, Role: o.role, Discord: o.discord, Eligible: o.eligible, Server: o.server, CuteGang: o.cute };
   });
   withLock_(function () {
     const name = 'MemberSnapshots_' + ym.slice(0, 4), sh = getSheet_(name);
@@ -882,6 +977,7 @@ function snapshotMembersNow() { snapshotMembers(true); }
 // ===================================================================
 
 function withDupFlags_(list, year) {
+  const missing = allCompleteness_();   // ข้อมูลกิลด์ที่ยังไม่ครบ → CTM เตือนตอนอนุมัติ
   const all = readReports_(year).concat(readReports_(year - 1));
   const idx = {};
   all.forEach(function (x) {
@@ -894,6 +990,7 @@ function withDupFlags_(list, year) {
     const k = r.hash ? 'img:' + r.hash : String(r.link || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
     const others = (idx[k] || []).filter(function (o) { return o.id !== r.id && (o.email !== r.email || o.ym !== r.ym); });
     if (others.length) r.dupOf = others.slice(0, 3).map(function (o) { return { guild: o.guild, ym: o.ym, sameGuild: o.email === r.email }; });
+    if (missing[r.email] && missing[r.email].length) r.guildMissing = missing[r.email];
     return r;
   });
 }
@@ -1058,6 +1155,7 @@ function getSheet_(name) {
     MEMO_.heads[name] = head.slice();
   }
   else if (name.indexOf('Reports_') === 0) ensureHead_(sh, HEAD.Reports, name);
+  else if (name === 'Members' || name.indexOf('MemberSnapshots_') === 0) ensureHead_(sh, HEAD[name === 'Members' ? 'Members' : 'MemberSnapshots'], name);
   MEMO_.sheets[name] = sh;
   return sh;
 }

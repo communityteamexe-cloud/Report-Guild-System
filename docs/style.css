@@ -276,3 +276,46 @@ th{font-size:12px;color:var(--muted-foreground);font-weight:500}
   .bar .tab i{width:32px;height:32px;font-size:18px}
   .bar .tab.on i{transform:translateY(-1px) scale(1.05)}
 }
+
+/* ===== CTM Next theme (13 ต.ค. 69) — โทนเดียวกับ CTM · สีเน้นเปลี่ยนได้ 20 สี (--primary) ===== */
+:root{--background:#f6f6f4;--foreground:#18181a;--card:#fff;--muted:#efeee9;--muted-foreground:#6b6a66;--border:#e2e1dc;
+  --primary:var(--accent,#c8102e);--primary-foreground:#fff;--ok:#1f8a4c;--warn:#9a5b00;--bad:#c2271d;--radius:8px}
+:root.dark{--background:#121214;--foreground:#f2f2f0;--card:#1b1b1e;--muted:#232327;--muted-foreground:#9a9993;--border:#2c2c31;
+  --primary:var(--accent,#e0334f);--ok:#4cc27e;--warn:#e0a640;--bad:#f0675c}
+body{background:var(--background)}
+.card{border-radius:20px;box-shadow:0 1px 2px rgb(0 0 0 / .04)}
+.btn,.tab{border-radius:999px}
+.tab.on{background:var(--foreground);color:var(--background);border-color:var(--foreground)}
+.tab{position:relative}
+.tab-dot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--bad);box-shadow:0 0 0 2px var(--card)}
+.accent-pop{position:absolute;right:12px;top:56px;z-index:60;display:grid;grid-template-columns:repeat(5,28px);gap:8px;padding:14px;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 10px 30px rgb(0 0 0 / .15)}
+.accent-pop button{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+.accent-pop button.on{border-color:var(--foreground);box-shadow:inset 0 0 0 2px var(--card)}
+
+/* ===== ข้อมูลกิลด์ ===== */
+.m-sec{margin-bottom:14px}
+.m-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.m-total-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.m-total-row input{max-width:140px;font-size:20px;font-weight:700}
+.m-list.z4 .m-row{grid-template-columns:28px 1.6fr 1.2fr 1fr 1.1fr 76px 34px}
+.m-list.tosm .m-row{grid-template-columns:28px 1.5fr 1fr 1.1fr 34px}
+.m-row input.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.02em}
+.m-row input.warn,.m-row select.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--background))}
+.m-row .warn-t{font-style:normal;font-size:11px;color:var(--warn)}
+.m-row .cute{display:flex;flex-direction:column;align-items:center;gap:2px}
+.m-row .cute input{width:18px;height:18px;accent-color:#d6336c}.m-row .cute small{display:block;font-size:10px;color:var(--muted-foreground)}
+.m-row.picked{background:color-mix(in srgb,#d6336c 7%,transparent);border-radius:10px}
+.setup{display:grid;grid-template-columns:80px 1fr auto;gap:16px;align-items:center;margin-bottom:14px;border:1.5px solid color-mix(in srgb,var(--warn) 45%,var(--border))}
+.setup .btn{width:auto;margin:0}
+.setup-ring{position:relative;width:80px;height:80px}.setup-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.setup-ring circle{fill:none;stroke-width:8}.setup-ring .t{stroke:var(--muted)}.setup-ring .p{stroke:var(--warn);stroke-linecap:round;transition:stroke-dashoffset .6s}
+.setup-ring b{position:absolute;inset:0;display:grid;place-items:center;font-size:17px}
+.setup-step{display:flex;gap:8px;align-items:center;padding:3px 0}
+.setup-step .ck{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;background:var(--muted);color:var(--muted-foreground)}
+.setup-step .ck.done{background:var(--ok);color:#fff}
+@media (max-width:720px){
+  .m-grid2{grid-template-columns:1fr}
+  .m-list.z4 .m-row,.m-list.tosm .m-row{grid-template-columns:1fr 1fr}
+  .m-row .cute{flex-direction:row;justify-content:flex-start}
+  .setup{grid-template-columns:64px 1fr}.setup .btn{grid-column:1 / -1;width:100%}
+  .setup-ring{width:64px;height:64px}.setup-ring svg{width:64px;height:64px}
+}
