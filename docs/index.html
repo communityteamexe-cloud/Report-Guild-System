@@ -181,6 +181,7 @@
             <label for="s-poster">ชื่อ Facebook ผู้โพสต์</label>
             <input id="s-poster" maxlength="100" placeholder="เช่น Somchai Gamer">
           </div>
+          <div id="s-evidence">
           <label>หลักฐาน <span class="muted" style="font-weight:400">— 1 กล่อง = 1 ลิงก์ หรือ 1 รูป (รวมสูงสุด 50)</span></label>
           <div id="s-links" class="links"></div>
           <div class="row-btns">
@@ -192,6 +193,11 @@
           </div>
           <div class="note muted">รูป: เลือกได้หลายรูป · ลากมาวาง · หรือแคปหน้าจอแล้วกด Ctrl+V ในหน้านี้ · ไฟล์ลิงก์: .txt .csv .xlsx .xls</div>
           <div class="note" id="s-count"></div>
+          </div>
+          <div id="s-times-wrap" hidden>
+            <label for="s-times">จำนวนครั้งที่ส่ง Feedback</label>
+            <div class="m-total-row"><input id="s-times" type="number" min="1" max="999" inputmode="numeric" placeholder="0"><span class="muted" id="s-times-pts">ครั้ง · ไม่ต้องแนบหลักฐาน</span></div>
+          </div>
           <div id="s-result"></div>
           <label for="s-note">รายละเอียดเพิ่มเติม (ไม่บังคับ)</label>
           <textarea id="s-note" rows="3" maxlength="500"></textarea>

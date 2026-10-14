@@ -769,15 +769,42 @@
   function onMissionChange() {
     const m = state.missions.find((x) => x.id === $('s-mission').value);
     $('s-poster-wrap').hidden = !(m && m.maxScope === 'poster');
+    // Feedback TOSM/9Yin = กรอกจำนวนครั้ง แทนการแนบหลักฐาน
+    const cm = !!(m && m.countMode);
+    $('s-evidence').hidden = cm; $('s-times-wrap').hidden = !cm;
+    if (cm) updateTimesPts();
     if (!m) { $('s-detail').textContent = 'เลือก Mission เพื่อดูรายละเอียด'; return; }
     const limit = m.maxPerMonth ? `สูงสุด ${m.maxPerMonth} ครั้ง / เดือน${m.maxScope === 'poster' ? ' ต่อ 1 Facebook' : ''}` : 'ส่งได้ไม่จำกัด';
     $('s-detail').innerHTML = `<b style="color:var(--foreground)">${esc(m.name)}</b><br>${esc(m.detail).replace(/ · /g, '<br>• ').replace(/^/, '• ')}` +
       `<div class="badge">🏅 <div><b>${m.points}</b> คะแนน / ครั้ง · ${limit}${m.cuteGuild ? '<br>นับเข้าเงื่อนไข Cute Guild' : ''}</div></div>`;
   }
 
+  function curMission() { return state.missions.find((x) => x.id === $('s-mission').value); }
+  function updateTimesPts() {
+    const m = curMission(), n = Number($('s-times').value) || 0;
+    $('s-times-pts').textContent = m && n > 0 ? `ครั้ง × ${m.points} คะแนน = ${n * m.points} คะแนน (เมื่อทีมงานอนุมัติ) · ไม่ต้องแนบหลักฐาน` : 'ครั้ง · ไม่ต้องแนบหลักฐาน';
+  }
+  /** ส่งแบบกรอกจำนวนครั้ง (Feedback TOSM/9Yin) */
+  async function onSendCount(m, btn) {
+    const n = Number($('s-times').value);
+    if (!(n >= 1 && n <= 999) || Math.floor(n) !== n) return toast('กรอกจำนวนครั้งเป็นตัวเลข 1–999', true);
+    const gi = state.guildInfo;
+    if (gi && !gi.complete && !confirm('⚠️ ข้อมูลกิลด์ยังไม่ครบ:\n• ' + gi.missing.join('\n• ') + '\n\nทีมงานใช้ข้อมูลนี้ตรวจงานและส่งรางวัล — ยืนยันส่ง Report ต่อเลยไหม?')) return;
+    btn.disabled = true; state.busy = true; btn.textContent = 'กำลังส่ง…';
+    try {
+      await api('submit', { missionId: m.id, count: n, note: $('s-note').value.trim() });
+      toast(`✅ ส่ง ${m.name} ${n} ครั้งแล้ว — รอทีมงานตรวจ`);
+      $('s-times').value = ''; $('s-note').value = ''; updateTimesPts();
+      switchPage('dash');
+    } catch (err) {
+      toast(err.uncertain ? '⚠️ ไม่แน่ใจว่าส่งสำเร็จ — ดูที่แท็บ 🕘 ประวัติก่อนส่งซ้ำ' : err.message, true);
+    } finally { btn.disabled = false; state.busy = false; btn.textContent = 'ส่ง Report'; }
+  }
+
   async function onSend(e) {
     e.preventDefault();
     const btn = $('s-btn');
+    { const m = curMission(); if (m && m.countMode) return onSendCount(m, btn); }
     const p = parseLinks();
     if (!$('s-mission').value) return toast('กรุณาเลือก Mission', true);
     if (!$('s-poster-wrap').hidden && !$('s-poster').value.trim()) return toast('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์', true);
@@ -1151,7 +1178,7 @@
       $('h-body').innerHTML = rows.length ? rows.map((r) => `<tr>
         <td>${fmtDate(r.createdAt)}</td>
         <td>${esc(r.mission)}${r.poster ? `<div class="note muted">${esc(r.poster)}</div>` : ''}</td>
-        <td>${r.kind === 'image' ? '<span class="muted" title="รูปเก็บส่วนตัว ทีมงานเท่านั้นที่เปิดได้">🖼️ รูปหลักฐาน</span>' : `<a href="${esc(safeUrl(r.link))}" target="_blank" rel="noopener">เปิดลิงก์</a>`}</td>
+        <td>${r.kind === 'count' ? `📝 ${esc(r.link)}` : r.kind === 'image' ? '<span class="muted" title="รูปเก็บส่วนตัว ทีมงานเท่านั้นที่เปิดได้">🖼️ รูปหลักฐาน</span>' : `<a href="${esc(safeUrl(r.link))}" target="_blank" rel="noopener">เปิดลิงก์</a>`}</td>
         <td><span class="pill ${esc(r.status)}">${STATUS_TH[r.status] || esc(r.status)}</span>${r.reason ? `<div class="note muted">${esc(r.reason)}</div>` : ''}${r.status === 'rejected' ? `<div><button type="button" class="link-btn resend" data-m="${esc(r.missionId)}" data-l="${r.kind === 'image' ? '' : esc(r.link)}" data-ym="${esc(r.ym)}">↻ แก้แล้วส่งใหม่</button></div>` : ''}</td>
         <td class="r">${r.status === 'approved' ? '<b>+' + fmtNum(r.approvedPoints) + '</b>' : '<span class="muted">—</span>'}</td></tr>`).join('')
         : '<tr><td colspan="5" class="empty">ยังไม่มี Report ในเดือนนี้ — <a href="#" id="go-send">ส่ง Report แรก</a></td></tr>';
@@ -1210,7 +1237,7 @@
       { id: 'z4-M2', group: 'basic', name: 'แชร์โพสต์กิจกรรม / โปรโมชั่น จาก Fanpage Official', detail: 'แชร์ภายใน 3 วันหลังโพสต์ · ตั้งเป็น Public · ใส่แคปชั่น + Hashtag', points: 10, maxPerMonth: 50, maxScope: 'guild', cuteGuild: false },
       { id: 'z4-M3', group: 'basic', name: 'รวมตี้ 8 คนขึ้นไป แช๊ะภาพประจำเดือน', detail: 'โพสต์รูปรวมตี้ลงกลุ่ม Facebook Official แบบสาธารณะ', points: 50, maxPerMonth: 4, maxScope: 'guild', cuteGuild: false },
       { id: 'z4-M4', group: 'basic', name: 'กิลด์วอยกตี้ เล่นด้วยกันรับด้วยกัน (Gang War)', detail: 'แคปรายละเอียดในแชทกิลด์ ภาพต้องมี Timestamp', points: 10, maxPerMonth: 2, maxScope: 'guild', cuteGuild: false },
-      { id: 'z4-FB', group: 'feedback', name: 'ส่ง Feedback เกม', detail: 'อ้างอิงแพทช์ล่าสุด อธิบายชัดเจน', points: 10, maxPerMonth: null, maxScope: 'guild', cuteGuild: false },
+      { id: 'z4-FB', group: 'feedback', name: 'ส่ง Feedback เกม', detail: 'อ้างอิงแพทช์ล่าสุด อธิบายชัดเจน', points: 10, maxPerMonth: null, maxScope: 'guild', cuteGuild: false, countMode: true },
       { id: 'z4-X1', group: 'extra', name: 'Mission เพิ่มเติมประจำเดือน', detail: 'ทีมงานแจ้งรายละเอียดทาง Discord', points: 15, maxPerMonth: 1, maxScope: 'guild', cuteGuild: false }
     ],
     reports: [],
@@ -1245,6 +1272,7 @@
     submit(b) {
       const m = this.missionList.find((x) => x.id === b.missionId);
       if (!m) throw new Error('กรุณาเลือก Mission');
+      if (m.countMode) { const id = 'R-demo-' + Date.now(); this.reports.push({ id, createdAt: new Date().toISOString(), ym: '', missionId: m.id, mission: m.name, points: m.points * b.count, link: 'จำนวน ' + b.count + ' ครั้ง', kind: 'count', status: 'pending', approvedPoints: null, reason: '' }); return { accepted: [{ reportId: id, kind: 'count' }], skipped: [], reportId: id }; }
       if (m.maxScope === 'poster' && !b.poster) throw new Error('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์');
       const accepted = [], skipped = [];
       b.links.forEach((link) => {
@@ -1323,6 +1351,7 @@
     $('m-import').onclick = () => $('m-file').click();
     $('m-file').addEventListener('change', () => importMemberFile($('m-file').files[0]));
     $('m-save').onclick = saveMembersNow;
+    $('s-times').addEventListener('input', updateTimesPts);
     $('m-body').addEventListener('input', () => setMemDirty(true));
     $('m-leader').addEventListener('input', () => setMemDirty(true));
     $('m-total').addEventListener('input', () => { setMemDirty(true); pullMembers(); renderMembers(); });

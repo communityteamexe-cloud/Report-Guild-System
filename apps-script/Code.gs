@@ -26,7 +26,7 @@ const HEAD = {
   Missions:  ['MissionID', 'Game', 'Group', 'Name', 'Detail', 'Points', 'MaxPerMonth', 'MaxScope', 'StartYM', 'EndYM', 'Active', 'CuteGuild'],
   RankRules: ['Game', 'FromYear', 'SS', 'S'],
   Reports:   ['ReportID', 'CreatedAt', 'YM', 'Email', 'Game', 'GuildNameTH', 'MissionID', 'MissionName', 'Points',
-              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash'],
+              'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash', 'Count'],
   Members:   ['MemberID', 'Email', 'Game', 'GuildID', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'UpdatedAt', 'Server', 'CuteYM'],
   GuildProfiles: ['Email', 'Game', 'LeaderName', 'LeaderNick', 'LeaderPhone', 'LeaderFB', 'TotalMembers', 'UpdatedAt'],
   MemberLog: ['At', 'Email', 'Action', 'CharName', 'InGameID', 'Detail'],
@@ -484,7 +484,8 @@ function missionsFor_(game, ym) {
   }).map(function (m) {
     return { id: m.MissionID, group: m.Group, name: m.Name, detail: m.Detail, points: Number(m.Points) || 0,
       maxPerMonth: m.MaxPerMonth === '' ? null : Number(m.MaxPerMonth), maxScope: m.MaxScope || 'guild',
-      cuteGuild: truthy_(m.CuteGuild), startYM: ymStr_(m.StartYM), endYM: m.EndYM ? ymStr_(m.EndYM) : '' };
+      cuteGuild: truthy_(m.CuteGuild), startYM: ymStr_(m.StartYM), endYM: m.EndYM ? ymStr_(m.EndYM) : '',
+      countMode: isCountMission_(game, m.Group) };
   });
 }
 
@@ -572,11 +573,32 @@ function rankOf_(score, rule) {
 const MAX_LINKS_PER_BATCH = 50;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;   // ต่อรูป (หน้าเว็บย่อให้ก่อนส่งอยู่แล้ว)
 
+/** Feedback ของ TOSM/9Yin = กรอกจำนวนครั้ง (ไม่ต้องแนบหลักฐาน) · คะแนน = จำนวนครั้ง × คะแนนต่อครั้ง */
+function isCountMission_(game, group) { return group === 'feedback' && !isZ4_(game); }
+/** จำนวนครั้งของ Report 1 แถว (แบบกรอกจำนวน = ค่าที่กรอก · แบบลิงก์/รูป = 1) */
+function reportTimes_(x) { return x.Kind === 'count' ? (Number(x.Count) || 0) : 1; }
+
+function submitCount_(g, r, m, ym, now) {
+  const n = Number(r.count);
+  if (!(n >= 1 && n <= 999) || Math.floor(n) !== n) throw new Error('กรอกจำนวนครั้งเป็นตัวเลข 1–999');
+  const year = now.getFullYear();
+  return withLock_(function () {
+    const id = 'R' + year + '-' + Utilities.getUuid().slice(0, 8), link = 'จำนวน ' + n + ' ครั้ง';
+    appendRows_(reportSheetName_(year), [{ ReportID: id, CreatedAt: now, YM: "'" + ym, Email: g.Email, Game: g.Game, GuildNameTH: g.NameTH,
+      MissionID: m.id, MissionName: m.name, Points: n * m.points, Poster: '', Link: link,
+      Note: String(r.note || '').slice(0, 500), Status: STATUS.PENDING, ApprovedPoints: '', Reason: '',
+      ReviewedAt: '', ReviewedBy: '', BatchID: '', Kind: 'count', Hash: '', Count: n }]);
+    bumpVersion_(g.Email);
+    return { batchId: '', accepted: [{ link: link, key: id, kind: 'count', reportId: id }], skipped: [], reportId: id, remaining: null };
+  });
+}
+
 function submitReport_(g, r) {
   const now = new Date();
   const ym = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
   const m = missionsFor_(g.Game, ym).filter(function (x) { return x.id === r.missionId; })[0];
   if (!m) throw new Error('กรุณาเลือก Mission (หรือ Mission นี้ไม่เปิดให้ส่งในเดือนนี้)');
+  if (m.countMode) return submitCount_(g, r, m, ym, now);
   const poster = String(r.poster || '').trim();
   if (m.maxScope === 'poster' && !poster) throw new Error('Mission นี้ต้องระบุชื่อ Facebook ผู้โพสต์');
 
@@ -753,7 +775,7 @@ function reportOut_(x) {
   return { id: x.ReportID, createdAt: x.CreatedAt instanceof Date ? x.CreatedAt.toISOString() : String(x.CreatedAt),
     ym: x.YM, email: x.Email, game: x.Game, guild: x.GuildNameTH, missionId: x.MissionID, mission: x.MissionName,
     points: Number(x.Points) || 0, poster: x.Poster, link: x.Link, note: x.Note, status: x.Status,
-    approvedPoints: x.ApprovedPoints === '' ? null : Number(x.ApprovedPoints), reason: x.Reason, batchId: x.BatchID || '', kind: x.Kind || 'link', hash: x.Hash || '' };
+    approvedPoints: x.ApprovedPoints === '' ? null : Number(x.ApprovedPoints), reason: x.Reason, batchId: x.BatchID || '', kind: x.Kind || 'link', hash: x.Hash || '', count: x.Kind === 'count' ? Number(x.Count) || 0 : null };
 }
 
 // ===================================================================
@@ -1029,7 +1051,7 @@ function withDupFlags_(list, year) {
   const all = readReports_(year).concat(readReports_(year - 1));
   const idx = {};
   all.forEach(function (x) {
-    if (x.Status === STATUS.REJECTED) return;
+    if (x.Status === STATUS.REJECTED || x.Kind === 'count') return;   // แบบกรอกจำนวน ไม่มีลิงก์ให้เทียบซ้ำ
     const k = x.Hash ? 'img:' + x.Hash : String(x.Link || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
     if (!k) return;
     (idx[k] = idx[k] || []).push({ id: x.ReportID, email: x.Email, guild: x.GuildNameTH, ym: ymStr_(x.YM) });
@@ -1067,7 +1089,7 @@ function dashboard_(g, year, month) {
   const perMission = missionsFor_(g.Game, ym).map(function (m) {
     const rows = thisMonth.filter(function (x) { return x.MissionID === m.id && x.Status !== STATUS.REJECTED; });
     return { id: m.id, name: m.name, group: m.group, points: m.points, maxPerMonth: m.maxPerMonth, maxScope: m.maxScope,
-      used: rows.length,
+      used: rows.reduce(function (s, x) { return s + reportTimes_(x); }, 0),
       score: rows.filter(function (x) { return x.Status === STATUS.APPROVED; })
         .reduce(function (s, x) { return s + (Number(x.ApprovedPoints) || 0); }, 0) };
   });
@@ -1154,7 +1176,7 @@ function cuteGuild_(g) {
   const count = rows.filter(function (x) {
     return x.Email === g.Email && x.Status === STATUS.APPROVED && cuteIds.indexOf(x.MissionID) >= 0 &&
       new Date(x.CreatedAt).getTime() >= since;
-  }).length;
+  }).reduce(function (s, x) { return s + reportTimes_(x); }, 0);
   return { count: count, need: 3, achieved: count >= 3 };
 }
 
