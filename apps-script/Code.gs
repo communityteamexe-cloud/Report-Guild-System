@@ -783,20 +783,20 @@ function completenessOf_(game, profile, members) {
   const z4 = isZ4_(game), missing = [];
   const leaderOk = !!(profile.leaderName && profile.leaderNick && profile.leaderPhone && profile.leaderFb);
   if (!leaderOk) missing.push('ข้อมูลหัวหน้ากิลด์');
-  const listOk = members.length > 0 && members.every(function (m) { return z4 ? m.inGameId : m.server; });
-  if (!members.length) missing.push('รายชื่อสมาชิก');
-  else if (!listOk) missing.push(z4 ? 'EXE Number ไม่ครบ' : 'Server ไม่ครบ');
-  const steps = [{ key: 'leader', label: 'ข้อมูลหัวหน้ากิลด์', ok: leaderOk },
-    { key: 'members', label: z4 ? 'รายชื่อสมาชิก (EXE Number · ตัวละคร · Level · ตำแหน่ง)' : 'รายชื่อสมาชิก (ตัวละคร · Level · Server)', ok: listOk, count: members.length }];
+  const steps = [{ key: 'leader', label: 'ข้อมูลหัวหน้ากิลด์', ok: leaderOk }];
+  // ทุกเกม: จำนวนสมาชิกทั้งหมด · Zone4 เพิ่ม รายชื่อ (EXE Number) + Cute Gang · TOSM/9Yin ไม่ต้องกรอกรายชื่อ
+  const totOk = profile.totalMembers > 0;
+  if (!totOk) missing.push('จำนวนสมาชิกทั้งหมด');
+  steps.push({ key: 'total', label: 'จำนวนสมาชิกกิลด์ทั้งหมด', ok: totOk });
   let cute = null;
   if (z4) {
+    const listOk = members.length > 0 && members.every(function (m) { return m.inGameId; });
+    if (!members.length) missing.push('รายชื่อสมาชิก');
+    else if (!listOk) missing.push('EXE Number ไม่ครบ');
+    steps.push({ key: 'members', label: 'รายชื่อสมาชิก (EXE Number · ตัวละคร · Level · ตำแหน่ง)', ok: listOk, count: members.length });
     cute = members.filter(function (m) { return m.cute; }).length;
     if (cute < CUTE_GANG_MAX) missing.push('Cute Gang ' + cute + '/' + CUTE_GANG_MAX);
     steps.push({ key: 'cute', label: 'เลือก Cute Gang ' + CUTE_GANG_MAX + ' คน ประจำเดือน', ok: cute >= CUTE_GANG_MAX, count: cute });
-  } else {
-    const totOk = profile.totalMembers > 0;
-    if (!totOk) missing.push('จำนวนสมาชิกทั้งหมด');
-    steps.push({ key: 'total', label: 'จำนวนสมาชิกกิลด์ทั้งหมด', ok: totOk });
   }
   return { complete: !missing.length, missing: missing, steps: steps, done: steps.filter(function (s) { return s.ok; }).length, cute: cute };
 }
@@ -822,6 +822,10 @@ function membersOf_(g, listIn, profileIn) {
  * Zone4: EXE Number บังคับ · ซ้ำไม่ได้ · Cute Gang ≤ 5 เฉพาะคนผ่านเกณฑ์ Level · TOSM/9Yin: Server ต้องอยู่ในรายการ · ตัวละคร+Server ซ้ำไม่ได้
  */
 function saveMembers_(g, input, profileIn, totalIn) {
+  const t0 = Date.now();
+  // TOSM/9Yin ไม่ต้องกรอกรายชื่อ — ส่งมาแค่ข้อมูลหัวหน้า + จำนวน (input = null → ไม่แตะชีตรายชื่อ)
+  const skipList = !isZ4_(g.Game) && !Array.isArray(input);
+  if (skipList) input = [];
   if (!Array.isArray(input)) throw new Error('ข้อมูลสมาชิกไม่ถูกต้อง');
   if (input.length > MAX_MEMBERS) throw new Error('สมาชิกได้สูงสุด ' + MAX_MEMBERS + ' คนต่อกิลด์');
   const z4 = isZ4_(g.Game), min = LEVEL_MIN[g.Game] || 0, ym = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
@@ -861,17 +865,27 @@ function saveMembers_(g, input, profileIn, totalIn) {
     let pi = -1;
     for (let i = 1; i < pdata.length; i++) if (pdata[i][pcol.Email] === g.Email) { pi = i; break; }
     const pvals = pdata[0].map(function (h) { return prow[h] === undefined ? '' : prow[h]; });
+    let profileChanged = false;
     if (pi > 0) {
       const old = pdata[pi];
       if (String(old[pcol.LeaderName]) !== prow.LeaderName || String(old[pcol.LeaderPhone]).replace(/^'/, '') !== prow.LeaderPhone.slice(1) ||
-          String(old[pcol.LeaderNick]) !== prow.LeaderNick || String(old[pcol.LeaderFB]) !== prow.LeaderFB) logs.push(['แก้ไข', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName + ' (' + prow.LeaderNick + ')']);
-      if (String(old[pcol.TotalMembers]) !== String(total)) logs.push(['แก้ไข', 'จำนวนสมาชิกทั้งหมด', '', (old[pcol.TotalMembers] || '—') + ' → ' + (total === '' ? '—' : total)]);
-      psh.getRange(pi + 1, 1, 1, pvals.length).setValues([pvals]);
+          String(old[pcol.LeaderNick]) !== prow.LeaderNick || String(old[pcol.LeaderFB]) !== prow.LeaderFB) { logs.push(['แก้ไข', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName + ' (' + prow.LeaderNick + ')']); profileChanged = true; }
+      if (String(old[pcol.TotalMembers]) !== String(total)) { logs.push(['แก้ไข', 'จำนวนสมาชิกทั้งหมด', '', (old[pcol.TotalMembers] || '—') + ' → ' + (total === '' ? '—' : total)]); profileChanged = true; }
+      if (profileChanged) psh.getRange(pi + 1, 1, 1, pvals.length).setValues([pvals]);
     } else if (prow.LeaderName || prow.LeaderNick || prow.LeaderFB || total !== '') {
-      psh.appendRow(pvals); logs.push(['เพิ่ม', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName]);
+      psh.appendRow(pvals); logs.push(['เพิ่ม', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName]); profileChanged = true;
     }
-    clearRows_('GuildProfiles');
+    if (profileChanged) clearRows_('GuildProfiles');
+    const profileUpdatedAt = profileChanged || pi < 0 ? now.toISOString()
+      : (pdata[pi][pcol.UpdatedAt] instanceof Date ? pdata[pi][pcol.UpdatedAt].toISOString() : String(pdata[pi][pcol.UpdatedAt] || ''));
+    const profile = { leaderName: prow.LeaderName, leaderNick: prow.LeaderNick, leaderPhone: prow.LeaderPhone.slice(1), leaderFb: prow.LeaderFB,
+      totalMembers: total === '' ? null : total, updatedAt: profileUpdatedAt };
+    if (skipList) {
+      if (logs.length) appendRows_('MemberLog', logs.map(function (l) { return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: '', Detail: l[3] }; }));
+      return Object.assign(membersOf_(g, [], profile), { changes: logs.length, ms: Date.now() - t0 });
+    }
 
+    const nProfileLogs = logs.length;
     // รายชื่อ
     const sh = getSheet_('Members');
     const data = sh.getDataRange().getValues();
@@ -907,18 +921,19 @@ function saveMembers_(g, input, profileIn, totalIn) {
     const body = data.slice(1);
     let first = body.findIndex(function (r) { return r[col.Email] === g.Email || r.join('') === ''; });
     if (first < 0) first = body.length;
-    const tail = rows.concat(body.slice(first).filter(function (r) { return r.join('') !== '' && r[col.Email] !== g.Email; }));
-    if (tail.length) sh.getRange(first + 2, 1, tail.length, head.length).setValues(tail);
-    const extra = body.length - first - tail.length;
-    if (extra > 0) sh.getRange(first + 2 + tail.length, 1, extra, head.length).clearContent();
+    const listChanged = logs.length > nProfileLogs;
+    if (listChanged) {                                   // ไม่มีอะไรเปลี่ยนในรายชื่อ → ไม่เขียนชีต
+      const tail = rows.concat(body.slice(first).filter(function (r) { return r.join('') !== '' && r[col.Email] !== g.Email; }));
+      if (tail.length) sh.getRange(first + 2, 1, tail.length, head.length).setValues(tail);
+      const extra = body.length - first - tail.length;
+      if (extra > 0) sh.getRange(first + 2 + tail.length, 1, extra, head.length).clearContent();
+    }
     if (logs.length) appendRows_('MemberLog', logs.map(function (l) {
       return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: l[2] ? "'" + l[2] : '', Detail: l[3] };
     }));
     // ตอบกลับจากข้อมูลที่เพิ่งบันทึก (ไม่อ่านชีตซ้ำ)
     const list = rows.map(function (r) { const o = {}; head.forEach(function (h, i) { o[h] = r[i]; }); return memberOut_(o, g.Game); });
-    const profile = { leaderName: prow.LeaderName, leaderNick: prow.LeaderNick, leaderPhone: prow.LeaderPhone.slice(1), leaderFb: prow.LeaderFB,
-      totalMembers: total === '' ? null : total, updatedAt: now.toISOString() };
-    return Object.assign(membersOf_(g, list, profile), { changes: logs.length });
+    return Object.assign(membersOf_(g, list, profile), { changes: logs.length, ms: Date.now() - t0 });
   });
 }
 

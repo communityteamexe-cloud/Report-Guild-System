@@ -84,8 +84,11 @@
       let lastErr;
       for (let i = 0; i < 3; i++) {           // ลองใหม่อัตโนมัติ (เน็ตสะดุด / Apps Script ยุ่ง)
         try {
-          const r = await fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
-          res = await r.json();
+          // หมดเวลา 45 วินาที → ไม่หมุนค้าง (คำสั่งเขียน = ให้ผู้เรียกตรวจผลเอง)
+          const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 45000);
+          let r;
+          try { r = await fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: ctl.signal }); res = await r.json(); }
+          finally { clearTimeout(to); }
           if (res && res.ok && res.service && res.data === undefined) {
             if (!readOnly) throw Object.assign(new Error('UNCERTAIN'), { uncertain: true });
             res = null;
@@ -293,6 +296,8 @@
     state.memDirty = on;
     $('m-dirty').textContent = on ? '● มีการแก้ไขที่ยังไม่บันทึก' : '';
     $('m-save').disabled = !on;
+    if (on) { $('m-save').classList.remove('ok'); $('m-save').textContent = '💾 บันทึกข้อมูลกิลด์'; }
+    else if (!$('m-save').classList.contains('ok')) $('m-save').textContent = '✓ บันทึกล่าสุดแล้ว';
   }
 
   /** วาดหน้าข้อมูลกิลด์ตามเกม (Zone4: EXE · ตำแหน่ง · Cute Gang · TOSM/9Yin: Server · จำนวนสมาชิกทั้งหมด) */
@@ -304,17 +309,18 @@
     const filled = list.filter((m) => m.charName || m.inGameId || m.level);
     const ok = filled.filter((m) => Number(m.level) >= min).length;
     const cute = z4 ? list.filter((m) => m.cute).length : 0;
-    $('m-total-card').hidden = z4;
-    $('m-list-t').textContent = (z4 ? '2' : '3') + ' · รายชื่อสมาชิก';
+    $('m-list-card').hidden = !z4;   // TOSM/9Yin ไม่ต้องกรอกรายชื่อ ใส่แค่จำนวน
+    $('m-list-t').textContent = '3 · รายชื่อสมาชิก';
     $('m-sub').textContent = `${state.guild.gameName} · เกณฑ์รับรางวัล Level ${min} ขึ้นไป · สูงสุด ${meta.max} คน`;
     $('m-stats').innerHTML = `<div><b>${filled.length}</b><span>สมาชิกทั้งหมด</span></div><div class="ok"><b>${ok}</b><span>ผ่านเกณฑ์ Lv ${min}</span></div>` +
       `<div class="${filled.length - ok ? 'warn' : ''}"><b>${filled.length - ok}</b><span>ยังไม่ถึงเกณฑ์</span></div>` +
       (z4 ? `<div class="${cute < 5 ? 'warn' : 'ok'}"><b>${cute}/5</b><span>💖 Cute Gang เดือนนี้</span></div>` : `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`);
-    if (!z4) {
+    {
       const t = Number($('m-total').value);
       $('m-total-cmp').innerHTML = !t ? '<span class="pill pending">กรอกจำนวนสมาชิกทั้งหมดในเกม</span>'
+        : !z4 ? `<span class="pill approved">✓ ${t} คน</span>`
         : t === filled.length ? `<span class="pill approved">✓ ตรงกับรายชื่อที่กรอก (${filled.length} คน)</span>`
-        : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนจริง ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
+        : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนที่กรอก ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
     }
     $('m-notice').innerHTML = snapshotNoticeHtml(false);
     // เลือกหลายแถว → ลบทีเดียว
@@ -471,15 +477,35 @@
   async function saveMembersNow() {
     pullMembers();
     const btn = $('m-save');
-    btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก…';
+    btn.disabled = true; btn.classList.remove('ok'); btn.textContent = '⏳ กำลังบันทึก…';
     const slow = setTimeout(() => { btn.textContent = '⏳ กำลังเขียนลงระบบ… อีกสักครู่'; }, 3000);
-    try {
-      const d = await api('saveMembers', { members: state.members, profile: state.profile, totalMembers: isZ4() ? '' : $('m-total').value });
+    const started = Date.now();
+    const done = (d) => {
       applyMemberData(d);
       setMemDirty(false); renderMembers();
-      toast(d.changes ? `✅ บันทึกแล้ว (${d.changes} รายการเปลี่ยนแปลง)` : '✅ บันทึกแล้ว ไม่มีอะไรเปลี่ยน');
-    } catch (err) { toast(err.message, true); setMemDirty(true); }
-    finally { clearTimeout(slow); btn.textContent = '💾 บันทึกข้อมูลกิลด์'; if (state.memDirty) btn.disabled = false; }
+      btn.classList.add('ok'); btn.textContent = '✓ บันทึกแล้ว';
+      setTimeout(() => { if (!state.memDirty) { btn.classList.remove('ok'); btn.textContent = '✓ บันทึกล่าสุดแล้ว'; } }, 3000);
+      toast(d.changes ? `✅ บันทึกข้อมูลกิลด์แล้ว (${d.changes} รายการเปลี่ยนแปลง)` : '✅ บันทึกแล้ว — ข้อมูลเป็นปัจจุบัน');
+    };
+    try {
+      // TOSM/9Yin ไม่ส่งรายชื่อ (หลังบ้านไม่แตะชีตรายชื่อ)
+      done(await api('saveMembers', { members: isZ4() ? state.members.map((m) => Object.assign({}, m, { sel: undefined })) : null, profile: state.profile, totalMembers: $('m-total').value }));
+    } catch (err) {
+      if (err.uncertain) {
+        // เน็ตสะดุด/หมดเวลา → เช็คว่าบันทึกเข้าแล้วหรือยัง ก่อนบอกผล
+        btn.textContent = '⏳ กำลังตรวจว่าบันทึกเข้าแล้วหรือยัง…';
+        try {
+          const d = await api('members');
+          const at = Date.parse(d.updatedAt || '') || 0;
+          if (at >= started - 60000) { done(Object.assign(d, { changes: 0 })); return; }
+        } catch (e) { /* ตรวจไม่ได้ → แจ้งให้กดใหม่ */ }
+        toast('⚠️ ยังไม่แน่ใจว่าบันทึกสำเร็จ — กด 💾 บันทึกอีกครั้ง (ไม่ซ้ำ ไม่เสียหาย)', true);
+      } else toast(err.message, true);
+      setMemDirty(true);
+    } finally {
+      clearTimeout(slow);
+      if (state.memDirty) { btn.classList.remove('ok'); btn.textContent = '💾 บันทึกข้อมูลกิลด์'; btn.disabled = false; }
+    }
   }
 
   function startRefresh() {
@@ -563,7 +589,7 @@
   function confetti(cv) {
     const ctx = cv.getContext('2d'), W = cv.width = innerWidth, H = cv.height = innerHeight;
     const cs = getComputedStyle(document.documentElement);
-    const cols = ['--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5'].map((v) => cs.getPropertyValue(v).trim() || '#e11').concat(['#ffd166', '#ffffff']);
+    const ac = store.get('rgs_accent') || '#c8102e', cols = [ac, ac, ac, '#ffd166', '#ffffff', '#ffb703'];
     const ps = Array.from({ length: 160 }, () => ({ x: W / 2 + (Math.random() - 0.5) * 120, y: H * 0.35, vx: (Math.random() - 0.5) * 14,
       vy: -Math.random() * 14 - 4, r: Math.random() * 6 + 4, a: Math.random() * 6, va: (Math.random() - 0.5) * 0.3, c: cols[(Math.random() * cols.length) | 0] }));
     const t0 = performance.now();
@@ -1200,15 +1226,17 @@
     profile: {},
     info() {
       const z4 = this.guild.game === 'z4', p = this.profile, l = this.memberList, cute = l.filter((m) => m.cute).length;
-      const steps = [{ key: 'leader', label: 'ข้อมูลหัวหน้ากิลด์ (ชื่อ · ชื่อเล่น · เบอร์ · Facebook)', ok: !!(p.leaderName && p.leaderNick && p.leaderPhone && p.leaderFb) },
-        z4 ? { key: 'members', label: 'รายชื่อสมาชิก + EXE Number', ok: l.length > 0 && l.every((m) => m.inGameId), count: l.length } : { key: 'total', label: 'จำนวนสมาชิกกิลด์ทั้งหมด', ok: Number(p.totalMembers) > 0 },
-        z4 ? { key: 'cute', label: 'เลือก Cute Gang เดือนนี้ 5 คน', ok: cute >= 5, count: cute } : { key: 'members', label: 'รายชื่อสมาชิก + Server', ok: l.length > 0 && l.every((m) => m.server), count: l.length }];
+      const steps = [{ key: 'leader', label: 'ข้อมูลหัวหน้ากิลด์', ok: !!(p.leaderName && p.leaderNick && p.leaderPhone && p.leaderFb) },
+        { key: 'total', label: 'จำนวนสมาชิกกิลด์ทั้งหมด', ok: Number(p.totalMembers) > 0 }];
+      if (z4) steps.push({ key: 'members', label: 'รายชื่อสมาชิก + EXE Number', ok: l.length > 0 && l.every((m) => m.inGameId), count: l.length },
+        { key: 'cute', label: 'เลือก Cute Gang 5 คน ประจำเดือน', ok: cute >= 5, count: cute });
       return { complete: steps.every((s) => s.ok), missing: steps.filter((s) => !s.ok).map((s) => s.label), steps, done: steps.filter((s) => s.ok).length, cute };
     },
     members() { const l = this.memberList; return { game: this.guild.game, members: l, profile: this.profile, levelMin: 40, max: 100, roles: ['leader', 'deputy', 'member'], servers: ['Laima', 'Vakarine', 'Giltine', 'Austeja', 'Jurate'], cuteMax: 5, count: l.length, eligible: l.filter((m) => m.level >= 40).length, updatedAt: l.reduce((a, m) => m.updatedAt > a ? m.updatedAt : a, ''), info: this.info() }; },
     saveMembers(b) {
       this.profile = Object.assign({}, b.profile, { totalMembers: b.totalMembers });
       const seen = {};
+      if (!b.members) return Object.assign(this.members(), { changes: 1 });
       b.members.forEach((m, i) => { if (!m.charName && !m.inGameId && !m.level) return; if (!m.charName || !m.inGameId || !Number(m.level)) throw new Error('แถวที่ ' + (i + 1) + ': กรอกให้ครบ'); const k = m.inGameId.toLowerCase(); if (seen[k]) throw new Error('EXE Number ซ้ำ: ' + m.inGameId); seen[k] = 1; });
       this.memberList = b.members.filter((m) => m.charName).map((m) => Object.assign({}, m, { level: Number(m.level), eligible: Number(m.level) >= 40, updatedAt: new Date().toISOString() }));
       return Object.assign(this.members(), { changes: this.memberList.length });

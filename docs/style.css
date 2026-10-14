@@ -365,3 +365,19 @@ body{background:var(--background)}
   .m-list.z4 .m-row,.m-list.tosm .m-row{grid-template-columns:1fr 1fr}
   .m-row .n.sel{position:absolute;top:8px;right:40px}
 }
+
+/* ===== สีเน้นทั้งระบบ (แบบ CTM Next) — ทุกโทนแดงเดิมคำนวณจาก --primary ===== */
+:root,:root.dark{
+  --chart-1:color-mix(in oklab,var(--primary) 45%,#fff);
+  --chart-2:color-mix(in oklab,var(--primary) 82%,#fff);
+  --chart-3:var(--primary);
+  --chart-4:color-mix(in oklab,var(--primary) 85%,#000);
+  --chart-5:color-mix(in oklab,var(--primary) 68%,#000);
+  --ring:color-mix(in oklab,var(--primary) 55%,transparent);
+}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--primary) 18%,transparent)}
+.bar .tab.on{color:var(--primary)}
+.bar .tab.on i{filter:none}
+/* ปุ่มบันทึก: บันทึกแล้ว = เทาเรียบ · สำเร็จ = เขียว */
+#m-save:disabled{background:var(--muted);color:var(--muted-foreground);opacity:1;cursor:default}
+#m-save.ok{background:var(--ok);color:#fff}
