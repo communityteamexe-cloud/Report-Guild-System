@@ -350,3 +350,18 @@ body{background:var(--background)}
   .bar .tab.on{box-shadow:none;background:var(--muted);color:var(--primary)}
   .tab-dot{position:absolute;top:2px;right:calc(50% - 22px);height:15px;min-width:15px;font-size:10px;box-shadow:0 0 0 2px var(--card)}
 }
+
+/* ===== เลือกหลายแถว (ข้อมูลกิลด์) ===== */
+.m-selbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;margin-bottom:6px;border-radius:12px;background:var(--muted);font-size:13px}
+.m-selbar .btn{width:auto;margin:0;padding:6px 14px;font-size:12.5px}
+.m-selbar .btn.danger{background:var(--bad);color:#fff}
+.m-selbar .btn.ghost{background:var(--card);color:var(--foreground);border:1px solid var(--border)}
+.m-row .n.sel{display:flex;align-items:center;justify-content:flex-end;gap:4px;cursor:pointer;margin:0}
+.m-row .n.sel input{width:15px;height:15px;accent-color:var(--primary);margin:0}
+.m-list.z4 .m-row,.m-list.tosm .m-row{grid-template-columns:50px 1.6fr 1.2fr 1fr 1.1fr 76px 34px}
+.m-list.tosm .m-row{grid-template-columns:50px 1.5fr 1fr 1.1fr 34px}
+.m-row.sel-on{background:color-mix(in srgb,var(--bad) 7%,transparent);border-radius:10px}
+@media (max-width:720px){
+  .m-list.z4 .m-row,.m-list.tosm .m-row{grid-template-columns:1fr 1fr}
+  .m-row .n.sel{position:absolute;top:8px;right:40px}
+}

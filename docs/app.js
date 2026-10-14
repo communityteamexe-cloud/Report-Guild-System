@@ -317,12 +317,18 @@
         : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนจริง ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
     }
     $('m-notice').innerHTML = snapshotNoticeHtml(false);
-    const head = z4 ? '<span>#</span><span>EXE Number * ' + EXE_INFO + '</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>ตำแหน่ง</span><span>💖 Cute</span><span></span>'
-      : '<span>#</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>Server *</span><span></span>';
+    // เลือกหลายแถว → ลบทีเดียว
+    const nSel = list.filter((m) => m.sel).length, nLow = filled.filter((m) => Number(m.level) < min).length;
+    const SEL_ALL = `<label class="n sel" title="เลือกทั้งหมด"><input type="checkbox" data-selall${list.length && nSel === list.length ? ' checked' : ''}></label>`;
+    const selBar = `<div class="m-selbar">${nSel
+      ? `<b>เลือกแล้ว ${nSel} คน</b><button type="button" class="btn danger" data-selact="del">🗑️ ลบที่เลือก</button><button type="button" class="btn ghost" data-selact="clear">ยกเลิก</button>`
+      : `<span class="muted">ติ๊กช่องหน้าแถวเพื่อเลือกหลายคน แล้วลบทีเดียว</span>`}${nLow ? `<button type="button" class="btn ghost" data-selact="low">เลือกคนที่ Level ไม่ถึงเกณฑ์ (${nLow})</button>` : ''}</div>`;
+    const head = z4 ? SEL_ALL + '<span>EXE Number * ' + EXE_INFO + '</span><span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>ตำแหน่ง</span><span>💖 Cute</span><span></span>'
+      : SEL_ALL + '<span>ชื่อตัวละคร *</span><span>เลเวลปัจจุบัน *</span><span>Server *</span><span></span>';
     $('m-body').className = 'm-list ' + (z4 ? 'z4' : 'tosm');
     $('m-body').innerHTML = !list.length
       ? `<div class="empty">ยังไม่มีรายชื่อสมาชิก — กด <b>📂 อัปโหลดไฟล์กิลด์เดิม</b> ระบบอ่านให้เอง หรือ <b>📋 วางจาก Excel</b> · <b>＋ เพิ่มสมาชิก</b></div>`
-      : `<div class="m-row m-head">${head}</div>` + list.map((m, i) => {
+      : selBar + `<div class="m-row m-head">${head}</div>` + list.map((m, i) => {
         const lv = Number(m.level) || 0, pass = lv >= min, dup = seen[key(m)] > 1;
         const exeWarn = z4 && m.inGameId && !EXE_NEW.test(String(m.inGameId).trim());
         const pct = min ? Math.min(100, Math.round((lv / min) * 100)) : 100;
@@ -333,10 +339,10 @@
           ? `<label><small>EXE Number * ${EXE_INFO}</small><input data-f="inGameId" maxlength="60" class="mono${dup || exeWarn ? ' warn' : ''}" value="${esc(m.inGameId)}" placeholder="N0JXB57ENOQ..." title="${dup ? 'EXE Number ซ้ำ' : exeWarn ? 'รูปแบบไม่ตรง EXE Number ใหม่ — กด ⓘ ดูวิธีเช็ค' : ''}" autocapitalize="characters"></label>` +
             nameCell + lvCell +
             `<label><small>ตำแหน่ง</small><select data-f="role">${Object.keys(ROLE_TH).map((r) => `<option value="${r}"${(m.role || 'member') === r ? ' selected' : ''}>${ROLE_TH[r]}</option>`).join('')}</select></label>` +
-            `<label class="cute"><input data-f="cute" type="checkbox"${m.cute ? ' checked' : ''}${!pass || m.role === 'leader' || (!m.cute && cute >= 5) ? ' disabled' : ''} title="${m.role === 'leader' ? 'หัวหน้าได้รางวัล Head Gang อยู่แล้ว' : !pass ? 'Level ยังไม่ถึงเกณฑ์' : !m.cute && cute >= 5 ? 'เลือกครบ 5 คนแล้ว' : 'เลือกเป็น Cute Gang'}"><small>${m.role === 'leader' ? 'Head Gang' : 'Cute Gang'}</small></label>`
+            `<label class="cute"><input data-f="cute" type="checkbox"${m.cute ? ' checked' : ''}${!pass || (!m.cute && cute >= 5) ? ' disabled' : ''} title="${!pass ? 'Level ยังไม่ถึงเกณฑ์' : !m.cute && cute >= 5 ? 'เลือกครบ 5 คนแล้ว' : 'เลือกเป็น Cute Gang'}"><small>Cute Gang</small></label>`
           : nameCell + lvCell +
             `<label><small>Server *</small><select data-f="server" class="${dup ? 'warn' : ''}"><option value="">— เลือกเซิร์ฟเวอร์ —</option>${(meta.servers || []).map((s) => `<option${m.server === s ? ' selected' : ''}>${s}</option>`).join('')}</select></label>`;
-        return `<div class="m-row${dup ? ' dup' : ''}${m.cute ? ' picked' : ''}" data-i="${i}"><span class="n">${i + 1}</span>${cells}<button type="button" class="icon x" data-del="${i}" title="ลบสมาชิก" aria-label="ลบสมาชิก">×</button></div>`;
+        return `<div class="m-row${m.sel ? ' sel-on' : ''}${dup ? ' dup' : ''}${m.cute ? ' picked' : ''}" data-i="${i}"><label class="n sel" title="เลือกแถวนี้"><input type="checkbox" data-sel="${i}"${m.sel ? ' checked' : ''}><span>${i + 1}</span></label>${cells}<button type="button" class="icon x" data-del="${i}" title="ลบสมาชิก" aria-label="ลบสมาชิก">×</button></div>`;
       }).join('');
     $('m-cute').innerHTML = z4 && list.length ? `<div class="notice ${cute >= 5 ? 'good' : 'info'}"><div>💖 <b>Cute Gang ประจำเดือน ${MONTHS[new Date().getMonth()]}: เลือกแล้ว ${cute}/5</b>${cute ? ' · ' + list.filter((m) => m.cute).map((m) => esc(m.charName)).join(' · ') : ''}<br><span class="muted">เลือกใหม่ทุกเดือน · เฉพาะสมาชิกที่ Level ผ่านเกณฑ์ · ล็อกพร้อมรายชื่อวันสุดท้ายของเดือน 23:30</span></div></div>` : '';
   }
@@ -1294,6 +1300,27 @@
     $('m-total').addEventListener('input', () => { setMemDirty(true); pullMembers(); renderMembers(); });
     // ออกจากช่อง Level/ID → วาดใหม่ให้แถบ Level และเตือน ID ซ้ำอัปเดต
     $('m-body').addEventListener('change', (ev) => { if (ev.target.dataset.f) { pullMembers(); setMemDirty(true); renderMembers(); } });
+    // เลือกหลายแถว (ไม่นับเป็นการแก้ไข จนกว่าจะกดลบ)
+    $('m-body').addEventListener('change', (ev) => {
+      const t = ev.target;
+      if (t.dataset.sel != null) { pullMembers(); const m = state.members[Number(t.dataset.sel)]; if (m) m.sel = t.checked; renderMembers(); }
+      else if (t.hasAttribute('data-selall')) { pullMembers(); state.members.forEach((m) => { m.sel = t.checked; }); renderMembers(); }
+    });
+    $('m-body').addEventListener('click', (ev) => {
+      const a = ev.target.closest('[data-selact]'); if (!a) return;
+      pullMembers();
+      const act = a.dataset.selact, min = (state.memMeta && state.memMeta.levelMin) || 0;
+      if (act === 'clear') state.members.forEach((m) => { m.sel = false; });
+      if (act === 'low') state.members.forEach((m) => { if ((m.charName || m.inGameId || m.level) && Number(m.level) < min) m.sel = true; });
+      if (act === 'del') {
+        const n = state.members.filter((m) => m.sel).length;
+        if (!n || !confirm(`ลบ ${n} คนออกจากรายชื่อ?\n(ยังไม่หายจากระบบจนกว่าจะกด 💾 บันทึก)`)) return;
+        state.members = state.members.filter((m) => !m.sel);
+        setMemDirty(true);
+        toast(`ลบ ${n} คนแล้ว — กด 💾 บันทึกข้อมูลกิลด์ เพื่อยืนยัน`);
+      }
+      renderMembers();
+    });
     $('m-body').addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-del]'); if (!b) return;
       pullMembers();
