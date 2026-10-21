@@ -769,6 +769,7 @@ function reviewMany_(r) {
       }
     });
     Object.keys(emails).forEach(bumpVersion_);
+    bumpSummary_();   // คะแนนเปลี่ยน → สรุปรางวัลต้องคำนวณใหม่
     return { updated: Object.keys(done).length, notFound: ids.filter(function (id) { return !done[id]; }) };
   });
 }
@@ -902,6 +903,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
   return withLock_(function () {
     const now = new Date(), logs = [];
     CacheService.getScriptCache().remove('completeness');   // ความครบเปลี่ยนได้ → CTM เห็นค่าใหม่ทันที
+    bumpSummary_();
     // หัวหน้ากิลด์ + จำนวนสมาชิกทั้งหมด
     const psh = getSheet_('GuildProfiles'), pdata = psh.getDataRange().getValues(), pcol = indexMap_(pdata[0]);
     const prow = { Email: g.Email, Game: g.Game, LeaderName: String(p.leaderName || '').trim().slice(0, 80), LeaderNick: String(p.leaderNick || '').trim().slice(0, 40),
@@ -1104,7 +1106,7 @@ function dashboard_(g, year, month) {
   const cache = CacheService.getScriptCache();
   const key = 'dash_' + g.Email + '_' + year + '_' + month + '_' + (cache.get('ver_' + g.Email) || '0');
   const hit = cache.get(key);
-  if (hit) return JSON.parse(hit);
+  if (hit) return (MEMO_.rows[name] = JSON.parse(hit));
 
   const ym = ymOf_(year, month);
   const mine = readReports_(year).filter(function (x) { return x.Email === g.Email; });
@@ -1234,7 +1236,7 @@ function leaderboard_(game, year, month) {
 // ── ความจำภายใน 1 คำขอ (29 ก.ย. 69) ──
 // Apps Script เริ่มตัวแปร global ใหม่ทุกคำขอ → จำไว้ได้แค่ในคำขอนั้น ไม่มีข้อมูลเก่าค้างข้ามคำขอ
 // เดิม 1 คำขอเปิดไฟล์ชีตซ้ำ 2–3 ครั้ง และ bootstrap อ่านแท็บ Report ทั้งปี 2 รอบ (dashboard_ + cuteGuild_)
-const MEMO_ = { ss: null, sheets: {}, heads: {}, reports: {} };
+const MEMO_ = { ss: null, sheets: {}, heads: {}, reports: {}, rows: {} };
 
 function ss_() {
   if (MEMO_.ss) return MEMO_.ss;
@@ -1299,9 +1301,10 @@ const ROWS_CACHE_SEC = 300;
 
 function readRows_(name) {
   if (!CACHED_TABS[name]) return rowsToObjects_(getSheet_(name).getDataRange().getValues());
+  if (MEMO_.rows[name]) return MEMO_.rows[name];   // ใน 1 คำขอ อ่าน cache ครั้งเดียว (เดิมวนอ่านซ้ำต่อกิลด์)
   const cache = CacheService.getScriptCache();
   const hit = cache.get('rows_' + name);
-  if (hit) return JSON.parse(hit);
+  if (hit) return (MEMO_.rows[name] = JSON.parse(hit));
   const rows = rowsToObjects_(getSheet_(name).getDataRange().getValues()).map(function (o) {
     Object.keys(o).forEach(function (k) {
       if (o[k] instanceof Date) o[k] = (k === 'StartYM' || k === 'EndYM') ? ymStr_(o[k]) : o[k].toISOString();
@@ -1309,10 +1312,10 @@ function readRows_(name) {
     return o;
   });
   try { cache.put('rows_' + name, JSON.stringify(rows), ROWS_CACHE_SEC); } catch (e) { /* ใหญ่เกิน 100KB = ไม่ cache */ }
-  return rows;
+  return (MEMO_.rows[name] = rows);
 }
 
-function clearRows_(name) { CacheService.getScriptCache().remove('rows_' + name); }
+function clearRows_(name) { delete MEMO_.rows[name]; CacheService.getScriptCache().remove('rows_' + name); bumpSummary_(); }
 
 /** รันเองจาก editor หลังแก้ชีตด้วยมือ ถ้าอยากให้มีผลทันที */
 function clearAllCache() { Object.keys(CACHED_TABS).forEach(clearRows_); }
@@ -1401,6 +1404,7 @@ const BENEFIT_KINDS = {
 
 /** ค่าเริ่มต้นจากไฟล์ "07 - จัด Item_Zone4 Extreme_..._Q4_2569" (สร้างครั้งแรกครั้งเดียว · หลังจากนั้นทีมแก้ใน CTM) */
 function seedBenefits_() {
+  if (MEMO_.seededB) return; MEMO_.seededB = true;
   const sh = getSheet_('BenefitSets');
   if (sh.getLastRow() > 1) return;
   const it = function (name, id, amount, value) { return { name: name, id: id, amount: amount, value: value, type: 'แลกไม่ได้' }; };
@@ -1421,6 +1425,7 @@ function seedBenefits_() {
   }));
 }
 function seedMemberTypes_() {
+  if (MEMO_.seededT) return; MEMO_.seededT = true;
   const sh = getSheet_('MemberTypes');
   if (sh.getLastRow() > 1) return;
   appendRows_('MemberTypes', ['tosm', '9yin'].reduce(function (a, g) {
@@ -1561,7 +1566,19 @@ function addCodes_(game, codes) {
 }
 
 /** สรุปรางวัลประจำเดือนทุกกิลด์ของเกม (CTM) */
+/** สรุปรางวัลประจำเดือน (cache: เดือนที่ผ่านไปแล้ว 6 ชม. · เดือนนี้ 2 นาที · ล้างเมื่อแก้รางวัล/แจก Code/ตรวจ Report/กิลด์บันทึกข้อมูล) */
+function bumpSummary_() { try { CacheService.getScriptCache().put('rsum_ver', String(Date.now()), 21600); } catch (e) { /* ignore */ } }
 function rewardSummary_(game, year, month) {
+  const cache = CacheService.getScriptCache(), n = new Date();
+  const key = 'rsum_' + game + '_' + year + '_' + month + '_' + (cache.get('rsum_ver') || '0');
+  const hit = cache.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch (e) { /* อ่านใหม่ */ } }
+  const out = rewardSummaryRaw_(game, year, month);
+  const past = year < n.getFullYear() || (year === n.getFullYear() && month < n.getMonth() + 1);
+  try { cache.put(key, JSON.stringify(out), past ? 21600 : 120); } catch (e) { /* ใหญ่เกิน → ไม่ cache */ }
+  return out;
+}
+function rewardSummaryRaw_(game, year, month) {
   const ym = ymOf_(year, month), rule = rankRule_(game, year), z4 = isZ4_(game);
   const score = {};
   readReports_(year).forEach(function (x) {
@@ -1593,7 +1610,7 @@ function distributeCodes_(game, year, month) {
   if (isZ4_(game)) throw new Error('Zone4 ใช้การแอดไอเทม ไม่ใช่ Code');
   const ym = ymOf_(year, month);
   return withLock_(function () {
-    const sum = rewardSummary_(game, year, month).filter(function (g) { return g.rank; });
+    const sum = rewardSummaryRaw_(game, year, month).filter(function (g) { return g.rank; });   // ใช้ของสดเสมอ (กันแจกซ้ำ)
     const sh = getSheet_('CodePool'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
     const free = [];
     for (let i = 1; i < data.length; i++) if (data[i][col.Game] === game && !data[i][col.Email] && data[i][col.Code] !== '') free.push(i);
