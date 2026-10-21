@@ -259,7 +259,8 @@ const ADMIN_ACTIONS = {
   adminRewardSummary: function (r) { return rewardSummary_(r.game, Number(r.year), Number(r.month)); },
   adminCodeDistribute: function (r) { return distributeCodes_(r.game, Number(r.year), Number(r.month)); },
   adminCodeList: function (r) { return codesOf_(r.game, Number(r.year), Number(r.month)); },
-  adminAddItemRows: function (r) { return addItemRows_(r.game, Number(r.year), Number(r.month)); }
+  adminAddItemRows: function (r) { return addItemRows_(r.game, Number(r.year), Number(r.month)); },
+  adminGuildOverview: function (r) { return guildOverview_(r.game || '', Number(r.year), Number(r.month)); }
 };
 
 // ===================================================================
@@ -1638,4 +1639,32 @@ function addItemRows_(game, year, month) {
     });
   });
   return { head: ['กิลด์', 'EXE Number', 'ชื่อตัวละคร', 'ชุดรางวัล', 'Item Name', 'Item ID', 'Amount'], rows: rows };
+}
+
+// ===================================================================
+// ภาพรวมทุกกิลด์ (CTM) — ส่ง Report เดือนนี้ · คะแนน/Rank · ข้อมูลกิลด์ · Cute Gang / Cute Guild
+// ===================================================================
+function guildOverview_(game, year, month) {
+  const ym = ymOf_(year, month), now = Date.now();
+  const reports = readReports_(year), missing = allCompleteness_();
+  const members = readRows_('Members');
+  const guilds = listGuilds_(game).filter(function (g) { return g.active; });
+  const cuteIds = {};
+  readRows_('Missions').forEach(function (m) { if (truthy_(m.CuteGuild)) cuteIds[m.MissionID] = true; });
+  return guilds.map(function (g) {
+    const rule = rankRule_(g.game, year);
+    const mine = reports.filter(function (x) { return x.Email === g.email && x.YM === ym; });
+    const live = mine.filter(function (x) { return x.Status !== STATUS.REJECTED; });
+    const score = mine.filter(function (x) { return x.Status === STATUS.APPROVED; }).reduce(function (s, x) { return s + (Number(x.ApprovedPoints) || 0); }, 0);
+    const last = live.reduce(function (m, x) { const t = new Date(x.CreatedAt).getTime(); return t > m ? t : m; }, 0);
+    const o = { email: g.email, guild: g.nameTH, nameEN: g.nameEN, game: g.game, gameName: g.gameName,
+      sent: live.reduce(function (s, x) { return s + reportTimes_(x); }, 0), pending: live.filter(function (x) { return x.Status === STATUS.PENDING; }).length,
+      lastSentAt: last ? new Date(last).toISOString() : '', idleDays: last ? Math.floor((now - last) / 86400000) : null,
+      score: score, rank: rankOf_(score, rule), needS: Math.max(0, rule.s - score), missing: missing[g.email] || [] };
+    if (isZ4_(g.game)) {
+      o.cute = members.filter(function (m) { return m.Email === g.email && ymStr_(m.CuteYM) === ym; }).length;
+      o.feedback = mine.filter(function (x) { return x.Status === STATUS.APPROVED && cuteIds[x.MissionID]; }).reduce(function (s, x) { return s + reportTimes_(x); }, 0);
+    }
+    return o;
+  });
 }
