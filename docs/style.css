@@ -381,3 +381,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 /* ปุ่มบันทึก: บันทึกแล้ว = เทาเรียบ · สำเร็จ = เขียว */
 #m-save:disabled{background:var(--muted);color:var(--muted-foreground);opacity:1;cursor:default}
 #m-save.ok{background:var(--ok);color:#fff}
+
+/* กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์ (ระหว่างโชว์ชุดที่จำไว้) */
+body.stale::after{content:"⟳ กำลังอัปเดต…";position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:80;padding:4px 12px;border-radius:99px;font-size:12px;background:var(--card);color:var(--muted-foreground);border:1px solid var(--border);box-shadow:0 4px 14px rgb(0 0 0 / .08);pointer-events:none}

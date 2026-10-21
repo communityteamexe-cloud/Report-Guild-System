@@ -81,6 +81,7 @@
       // บางครั้ง Google ตอบหน้าเช็คสถานะ (doGet: มี "service" ไม่มี data) แทนผลจริง — มักตอนเซิร์ฟเวอร์ช้า
       // คำสั่งอ่านอย่างเดียว → ลองใหม่เอง · submit ห้ามส่งซ้ำ → ให้ onSend ไปตรวจในประวัติแทน
       const readOnly = ['me', 'bootstrap', 'missions', 'dashboard', 'history'].indexOf(action) >= 0;
+      const t0 = performance.now();
       let lastErr;
       for (let i = 0; i < 3; i++) {           // ลองใหม่อัตโนมัติ (เน็ตสะดุด / Apps Script ยุ่ง)
         try {
@@ -104,6 +105,8 @@
         }
       }
       if (lastErr) throw new Error('เชื่อมต่อระบบไม่ได้ กรุณาลองใหม่');
+      // จับเวลา: server = เวลาที่หลังบ้านใช้จริง · total = รวมเน็ต + Google (ดูใน Console ของเบราว์เซอร์)
+      if (res && res.ms != null) console.info('[RGS] ' + action + ' · server ' + res.ms + 'ms · total ' + Math.round(performance.now() - t0) + 'ms');
     }
     if (!res.ok) {
       if (res.error === 'SESSION_EXPIRED') { logout(true); throw new Error('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่'); }
@@ -168,6 +171,7 @@
     if (!silent && state.token) api('logout').catch(() => {});
     state.token = null; state.guild = null;
     tokenStore.clear();
+    dataCache.clear();
     stopRefresh();
     show('v-login');
   }
@@ -197,12 +201,39 @@
     $('g-game').textContent = g.gameName + ' · Guild ID ' + g.guildId + (DEMO ? ' · DEMO' : '');
   }
 
+  // ---------- จำข้อมูลล่าสุดไว้ในเครื่อง (โชว์ทันที แล้วค่อยอัปเดตของสด) ----------
+  // เก็บแยกตามอีเมลกิลด์ · ล้างตอนออกจากระบบ · เครื่องที่บล็อก storage ก็ทำงานต่อได้ (แค่ไม่เร็วขึ้น)
+  const dataCache = {
+    key(k) { return 'rgs_c_' + String((state.guild && state.guild.email) || store.get('rgs_email') || '') + '_' + k; },
+    get(k) { try { const v = localStorage.getItem(this.key(k)); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(this.key(k), JSON.stringify(v)); } catch (e) { /* เต็ม/บล็อก → ไม่จำ */ } },
+    clear() { try { Object.keys(localStorage).filter((k) => k.indexOf('rgs_c_') === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* ignore */ } }
+  };
+  /** ป้ายเล็ก "กำลังอัปเดต…" ระหว่างโชว์ข้อมูลที่จำไว้ */
+  function setStale(on) { document.body.classList.toggle('stale', !!on); }
+  /** โหลดแท็บอื่นไว้ล่วงหน้า (เงียบ ๆ) — กดสลับแท็บแล้วขึ้นทันที */
+  function prefetch() {
+    if (DEMO) return;
+    const n = new Date(), y = n.getFullYear(), m = n.getMonth() + 1;
+    api('history', { year: y, month: m }).then((rows) => dataCache.set('hist_' + y + '_' + m, rows)).catch(() => {});
+    api('members').then((d) => { dataCache.set('members', d); if (!state.memDirty && $('p-mem').classList.contains('on')) { applyMemberData(d); renderMembers(); } }).catch(() => {});
+  }
+
   /** เข้าแอป: ขอ bootstrap ครั้งเดียว (กิลด์ + Mission + คะแนน) */
   async function enterApp() {
     if (state.guild) showGuild(state.guild);
     show('v-app');
     switchPage('dash', true);
-    setDashLoading(true);
+    // มีข้อมูลชุดล่าสุดในเครื่อง → โชว์ทันที แล้วค่อยแทนด้วยของสด
+    const cached = dataCache.get('boot');
+    if (cached && cached.guild) {
+      try {
+        state.guild = cached.guild; showGuild(cached.guild);
+        state.missions = cached.missions; renderDash(cached.dashboard); renderMissions(cached.missions);
+        if (cached.info) setGuildInfo(cached.info);
+        setStale(true);
+      } catch (e) { setDashLoading(true); }
+    } else setDashLoading(true);
     const now = new Date();
     const seenKey = 'rgs_seen_' + ((state.guild && state.guild.email) || store.get('rgs_email') || '');
     const since = Number(store.get(seenKey) || 0);
@@ -218,9 +249,11 @@
       showReviewed(b.reviewed);
       if (b.info) setGuildInfo(b.info);
       store.set('rgs_seen_' + b.guild.email, String(Date.now()));
+      dataCache.set('boot', { guild: b.guild, missions: b.missions, dashboard: b.dashboard, info: b.info });
       startRefresh();
+      prefetch();
     } catch (err) { toast(err.message, true); }
-    finally { setDashLoading(false); }
+    finally { setDashLoading(false); setStale(false); }
   }
 
   /** สถานะกำลังโหลดของหน้าคะแนน (ตัวเลขกระพริบแทนขีด) */
@@ -252,13 +285,18 @@
   const isZ4 = () => state.guild && state.guild.game === 'z4';
 
   async function loadMembers() {
-    $('m-body').innerHTML = '<div class="empty">กำลังโหลดข้อมูลกิลด์…</div>';
+    const c = dataCache.get('members');
+    if (c && c.members) { applyMemberData(c); setMemDirty(false); renderMembers(); setStale(true); }
+    else $('m-body').innerHTML = '<div class="empty">กำลังโหลดข้อมูลกิลด์…</div>';
     try {
       const d = await api('members');
+      dataCache.set('members', d);
+      setStale(false);
+      if (state.memDirty) return;           // ระหว่างรอ ผู้ใช้เริ่มแก้แล้ว → ไม่ทับสิ่งที่พิมพ์
       applyMemberData(d);
       setMemDirty(false);
       renderMembers();
-    } catch (err) { $('m-body').innerHTML = `<div class="empty">โหลดไม่สำเร็จ: ${esc(err.message)}</div>`; }
+    } catch (err) { setStale(false); if (!c) $('m-body').innerHTML = `<div class="empty">โหลดไม่สำเร็จ: ${esc(err.message)}</div>`; }
   }
   function applyMemberData(d) {
     state.memMeta = d;
@@ -481,6 +519,7 @@
     const slow = setTimeout(() => { btn.textContent = '⏳ กำลังเขียนลงระบบ… อีกสักครู่'; }, 3000);
     const started = Date.now();
     const done = (d) => {
+      dataCache.set('members', d);
       applyMemberData(d);
       setMemDirty(false); renderMembers();
       btn.classList.add('ok'); btn.textContent = '✓ บันทึกแล้ว';
@@ -522,12 +561,15 @@
   // ---------- dashboard ----------
   async function loadDash(silent) {
     const y = Number($('d-year').value), m = Number($('d-month').value);
-    if (!silent) setDashLoading(true);
+    const ck = 'dash_' + y + '_' + m, c = dataCache.get(ck);
+    if (c && !silent) { renderDash(c); setStale(true); }
+    else if (!silent) setDashLoading(true);
     try {
       const d = await api('dashboard', { year: y, month: m });
+      dataCache.set(ck, d);
       renderDash(d);
     } catch (err) { if (!silent) toast(err.message, true); }
-    finally { if (!silent) setDashLoading(false); }
+    finally { if (!silent) { setDashLoading(false); setStale(false); } }
   }
 
   /** แจ้งผลตรวจที่เกิดขึ้นตั้งแต่เปิดเว็บครั้งก่อน (แถบบนหน้าคะแนน + Toast) */
@@ -1173,8 +1215,17 @@
 
   // ---------- history ----------
   async function loadHist(silent) {
+    const y = Number($('h-year').value), m = Number($('h-month').value), ck = 'hist_' + y + '_' + m, c = dataCache.get(ck);
+    if (c && !silent) { renderHist(c); setStale(true); }
     try {
-      const rows = await api('history', { year: Number($('h-year').value), month: Number($('h-month').value) });
+      const rows = await api('history', { year: y, month: m });
+      dataCache.set(ck, rows);
+      renderHist(rows);
+    } catch (err) { if (!silent) toast(err.message, true); }
+    finally { if (!silent) setStale(false); }
+  }
+  function renderHist(rows) {
+    {
       $('h-body').innerHTML = rows.length ? rows.map((r) => `<tr>
         <td>${fmtDate(r.createdAt)}</td>
         <td>${esc(r.mission)}${r.poster ? `<div class="note muted">${esc(r.poster)}</div>` : ''}</td>
@@ -1185,7 +1236,7 @@
       const go = $('go-send');
       if (go) go.onclick = (ev) => { ev.preventDefault(); switchPage('send'); };
       $('h-body').querySelectorAll('.resend').forEach((b) => { b.onclick = () => resendFrom(b.dataset); });
-    } catch (err) { if (!silent) toast(err.message, true); }
+    }
   }
 
   /**
@@ -1399,6 +1450,7 @@
       addImages(files.map((f, i) => (f.name && f.name !== 'image.png') ? f : new File([f], `แคปหน้าจอ_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}_${i + 1}.png`, { type: f.type })));
     });
     ['s-mission', 's-poster', 's-note'].forEach((id) => { const x = $(id); if (x) x.addEventListener('focus', warmUp); });
+    document.addEventListener('focusin', warmUp);   // เริ่มพิมพ์ช่องไหนก็ปลุกเซิร์ฟเวอร์ล่วงหน้า (ไม่เกิน 1 ครั้ง/นาที)
     $('p-cancel').onclick = () => enterApp();
     $('b-pass').onclick = () => openPass(false);
     $('b-out').onclick = () => { if (confirm('ออกจากระบบใช่ไหม?' + (store.get('rgs_token') ? '\n(เครื่องนี้จะไม่จำการเข้าสู่ระบบแล้ว)' : ''))) logout(false); };

@@ -192,6 +192,7 @@ function doGet() {
 
 /** ทุก request จากเว็บกิลด์ / CTM เข้าที่นี่ */
 function doPost(e) {
+  DOPOST_T0_ = Date.now();   // เวลาที่เซิร์ฟเวอร์ใช้จริง (ms) แนบไปกับทุกคำตอบ — ใช้หาว่าขั้นไหนช้า
   try {
     const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const a = String(req.action || '');
@@ -880,6 +881,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
 
   return withLock_(function () {
     const now = new Date(), logs = [];
+    CacheService.getScriptCache().remove('completeness');   // ความครบเปลี่ยนได้ → CTM เห็นค่าใหม่ทันที
     // หัวหน้ากิลด์ + จำนวนสมาชิกทั้งหมด
     const psh = getSheet_('GuildProfiles'), pdata = psh.getDataRange().getValues(), pcol = indexMap_(pdata[0]);
     const prow = { Email: g.Email, Game: g.Game, LeaderName: String(p.leaderName || '').trim().slice(0, 80), LeaderNick: String(p.leaderNick || '').trim().slice(0, 40),
@@ -981,14 +983,21 @@ function adminMembers_(game, email) {
 
 /** ความครบของข้อมูลทุกกิลด์ (CTM ใช้เตือนตอนอนุมัติ) — อ่านชีตรอบเดียว */
 function allCompleteness_() {
+  // เก็บผล 5 นาที (หน้าตรวจของ CTM เรียกทุกครั้งที่โหลดรายการ) · ล้างเมื่อกิลด์บันทึกข้อมูลกิลด์
+  const cache = CacheService.getScriptCache(), hit = cache.get('completeness');
+  if (hit) { try { return JSON.parse(hit); } catch (e) { /* อ่านใหม่ */ } }
   const guilds = readRows_('Guilds'), members = readRows_('Members'), profiles = readRows_('GuildProfiles'), out = {};
+  const byEmail = {}, profOf = {};
+  members.forEach(function (x) { (byEmail[x.Email] = byEmail[x.Email] || []).push(x); });
+  profiles.forEach(function (p) { profOf[p.Email] = p; });
   guilds.forEach(function (g) {
-    const p = profiles.filter(function (x) { return x.Email === g.Email; })[0];
+    const p = profOf[g.Email];
     const prof = p ? { leaderName: p.LeaderName, leaderNick: p.LeaderNick, leaderPhone: String(p.LeaderPhone || '').replace(/^'/, ''), leaderFb: p.LeaderFB,
       totalMembers: p.TotalMembers === '' ? null : Number(p.TotalMembers) } : {};
-    const list = members.filter(function (x) { return x.Email === g.Email; }).map(function (x) { return memberOut_(x, g.Game); });
+    const list = (byEmail[g.Email] || []).map(function (x) { return memberOut_(x, g.Game); });
     out[g.Email] = completenessOf_(g.Game, prof, list).missing;
   });
+  try { cache.put('completeness', JSON.stringify(out), 300); } catch (e) { /* ใหญ่เกิน → ไม่ cache */ }
   return out;
 }
 
@@ -1261,7 +1270,7 @@ function readReports_(year) {
  * อ่านแท็บเป็น object · แท็บที่ไม่ค่อยเปลี่ยน (Guilds/Missions/RankRules) เก็บ Cache 5 นาที
  * เขียนผ่านโค้ด = ล้าง Cache ทันที · แก้ในชีตด้วยมือ = มีผลภายใน 5 นาที (หรือรัน clearAllCache)
  */
-const CACHED_TABS = { Guilds: true, Missions: true, RankRules: true };
+const CACHED_TABS = { Guilds: true, Missions: true, RankRules: true, GuildProfiles: true };   // GuildProfiles เขียนผ่าน saveMembers_ เท่านั้น (ล้าง cache ให้เอง)
 const ROWS_CACHE_SEC = 300;
 
 function readRows_(name) {
@@ -1348,6 +1357,8 @@ function ymStr_(v) {
 
 function truthy_(v) { return v === true || String(v).toLowerCase() === 'true'; }
 
+let DOPOST_T0_ = 0;
 function json_(o) {
+  if (DOPOST_T0_) o.ms = Date.now() - DOPOST_T0_;
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 }
