@@ -28,7 +28,10 @@ const HEAD = {
   Reports:   ['ReportID', 'CreatedAt', 'YM', 'Email', 'Game', 'GuildNameTH', 'MissionID', 'MissionName', 'Points',
               'Poster', 'Link', 'Note', 'Status', 'ApprovedPoints', 'Reason', 'ReviewedAt', 'ReviewedBy', 'BatchID', 'Kind', 'Hash', 'Count'],
   Members:   ['MemberID', 'Email', 'Game', 'GuildID', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'UpdatedAt', 'Server', 'CuteYM'],
-  GuildProfiles: ['Email', 'Game', 'LeaderName', 'LeaderNick', 'LeaderPhone', 'LeaderFB', 'TotalMembers', 'UpdatedAt'],
+  GuildProfiles: ['Email', 'Game', 'LeaderName', 'LeaderNick', 'LeaderPhone', 'LeaderFB', 'TotalMembers', 'UpdatedAt', 'TypeCounts'],
+  BenefitSets: ['SetID', 'Game', 'Kind', 'Name', 'FromYM', 'Method', 'Items', 'Active', 'UpdatedAt'],
+  MemberTypes: ['Game', 'TypeID', 'Name', 'CodesPer', 'Order'],
+  CodePool: ['Code', 'Game', 'AddedAt', 'Status', 'Email', 'GuildNameTH', 'YM', 'AssignedAt'],
   MemberLog: ['At', 'Email', 'Action', 'CharName', 'InGameID', 'Detail'],
   MemberSnapshots: ['YM', 'SnapshotAt', 'Email', 'Game', 'GuildNameTH', 'CharName', 'InGameID', 'Level', 'Role', 'Discord', 'Eligible', 'Server', 'CuteGang']
 };
@@ -246,7 +249,17 @@ const ADMIN_ACTIONS = {
   adminListMembers: function (r) { return adminMembers_(r.game, r.email); },
   adminGuildInfo: function (r) { const g = findGuild_(r.email); if (!g) throw new Error('ไม่พบกิลด์ ' + r.email); return membersOf_(g); },
   adminMemberLog: function (r) { return memberLog_(r.email, Number(r.limit) || 200); },
-  adminMemberSnapshot: function (r) { return memberSnapshot_(r.email, ymOf_(r.year, r.month)); }
+  adminMemberSnapshot: function (r) { return memberSnapshot_(r.email, ymOf_(r.year, r.month)); },
+  // Benefit (รางวัล) — ตั้งค่า · คลัง Code · สรุปประจำเดือน · ไฟล์แอด Item
+  adminGames: function () { return Object.keys(GAMES).map(function (k) { return { id: k, name: GAMES[k], method: isZ4_(k) ? 'add' : 'code', levelMin: LEVEL_MIN[k] || 0 }; }); },
+  adminBenefitConfig: function (r) { return benefitConfig_(r.game); },
+  adminBenefitSaveSet: function (r) { return saveBenefitSet_(r.set); },
+  adminBenefitSaveTypes: function (r) { return saveMemberTypes_(r.game, r.types); },
+  adminCodeAdd: function (r) { return addCodes_(r.game, r.codes); },
+  adminRewardSummary: function (r) { return rewardSummary_(r.game, Number(r.year), Number(r.month)); },
+  adminCodeDistribute: function (r) { return distributeCodes_(r.game, Number(r.year), Number(r.month)); },
+  adminCodeList: function (r) { return codesOf_(r.game, Number(r.year), Number(r.month)); },
+  adminAddItemRows: function (r) { return addItemRows_(r.game, Number(r.year), Number(r.month)); }
 };
 
 // ===================================================================
@@ -795,7 +808,8 @@ function profileOf_(g) {
   const p = readRows_('GuildProfiles').filter(function (x) { return x.Email === g.Email; })[0] || {};
   return { leaderName: String(p.LeaderName || ''), leaderNick: String(p.LeaderNick || ''), leaderPhone: String(p.LeaderPhone || '').replace(/^'/, ''),
     leaderFb: String(p.LeaderFB || ''), totalMembers: p.TotalMembers === '' || p.TotalMembers == null ? null : Number(p.TotalMembers),
-    updatedAt: p.UpdatedAt instanceof Date ? p.UpdatedAt.toISOString() : String(p.UpdatedAt || '') };
+    updatedAt: p.UpdatedAt instanceof Date ? p.UpdatedAt.toISOString() : String(p.UpdatedAt || ''),
+    typeCounts: (function () { try { return p.TypeCounts ? JSON.parse(p.TypeCounts) : {}; } catch (e) { return {}; } })() };
 }
 
 /**
@@ -835,7 +849,7 @@ function membersOf_(g, listIn, profileIn) {
   const profile = profileIn || profileOf_(g);
   const last = list.reduce(function (m, x) { return x.updatedAt > m ? x.updatedAt : m; }, profile.updatedAt || '');
   return { game: g.Game, members: list, profile: profile, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
-    servers: isZ4_(g.Game) ? [] : TOSM_SERVERS, cuteMax: isZ4_(g.Game) ? CUTE_GANG_MAX : 0,
+    servers: isZ4_(g.Game) ? [] : TOSM_SERVERS, cuteMax: isZ4_(g.Game) ? CUTE_GANG_MAX : 0, types: isZ4_(g.Game) ? [] : memberTypesOf_(g.Game),
     count: list.length, eligible: list.filter(function (x) { return x.eligible; }).length, updatedAt: last,
     info: completenessOf_(g.Game, profile, list) };
 }
@@ -844,6 +858,7 @@ function membersOf_(g, listIn, profileIn) {
  * บันทึกข้อมูลกิลด์ทั้งชุด: หัวหน้า · จำนวนสมาชิกทั้งหมด (TOSM/9Yin) · รายชื่อ (แทนที่ของเดิม + เขียนประวัติ)
  * Zone4: EXE Number บังคับ · ซ้ำไม่ได้ · Cute Gang ≤ 5 เฉพาะคนผ่านเกณฑ์ Level · TOSM/9Yin: Server ต้องอยู่ในรายการ · ตัวละคร+Server ซ้ำไม่ได้
  */
+function p0_(o) { return o || {}; }
 function saveMembers_(g, input, profileIn, totalIn) {
   const t0 = Date.now();
   // TOSM/9Yin ไม่ต้องกรอกรายชื่อ — ส่งมาแค่ข้อมูลหัวหน้า + จำนวน (input = null → ไม่แตะชีตรายชื่อ)
@@ -876,7 +891,11 @@ function saveMembers_(g, input, profileIn, totalIn) {
   });
   if (cute > CUTE_GANG_MAX) throw new Error('Cute Gang เลือกได้สูงสุด ' + CUTE_GANG_MAX + ' คน (เลือกมา ' + cute + ')');
   const p = profileIn || {};
-  const total = totalIn === '' || totalIn == null ? '' : Number(totalIn);
+  // TOSM/9Yin: จำนวนคนแยกตามประเภท (ทีมตั้งใน CTM → Benefit) · จำนวนรวม = ผลรวมทุกประเภท
+  const typeCounts = {};
+  if (!isZ4_(g.Game) && p0_(profileIn).typeCounts) memberTypesOf_(g.Game).forEach(function (t) { const n = Math.floor(Number(profileIn.typeCounts[t.id]) || 0); if (n > 0) typeCounts[t.id] = Math.min(n, 9999); });
+  const typeSum = Object.keys(typeCounts).reduce(function (s, k) { return s + typeCounts[k]; }, 0);
+  const total = typeSum ? typeSum : totalIn === '' || totalIn == null ? '' : Number(totalIn);
   if (total !== '' && !(total >= 0 && total <= 9999)) throw new Error('จำนวนสมาชิกทั้งหมดต้องเป็นตัวเลข');
 
   return withLock_(function () {
@@ -885,7 +904,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
     // หัวหน้ากิลด์ + จำนวนสมาชิกทั้งหมด
     const psh = getSheet_('GuildProfiles'), pdata = psh.getDataRange().getValues(), pcol = indexMap_(pdata[0]);
     const prow = { Email: g.Email, Game: g.Game, LeaderName: String(p.leaderName || '').trim().slice(0, 80), LeaderNick: String(p.leaderNick || '').trim().slice(0, 40),
-      LeaderPhone: "'" + String(p.leaderPhone || '').trim().slice(0, 30), LeaderFB: String(p.leaderFb || '').trim().slice(0, 300), TotalMembers: total, UpdatedAt: now };
+      LeaderPhone: "'" + String(p.leaderPhone || '').trim().slice(0, 30), LeaderFB: String(p.leaderFb || '').trim().slice(0, 300), TotalMembers: total, UpdatedAt: now, TypeCounts: JSON.stringify(typeCounts) };
     let pi = -1;
     for (let i = 1; i < pdata.length; i++) if (pdata[i][pcol.Email] === g.Email) { pi = i; break; }
     const pvals = pdata[0].map(function (h) { return prow[h] === undefined ? '' : prow[h]; });
@@ -894,6 +913,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
       const old = pdata[pi];
       if (String(old[pcol.LeaderName]) !== prow.LeaderName || String(old[pcol.LeaderPhone]).replace(/^'/, '') !== prow.LeaderPhone.slice(1) ||
           String(old[pcol.LeaderNick]) !== prow.LeaderNick || String(old[pcol.LeaderFB]) !== prow.LeaderFB) { logs.push(['แก้ไข', 'ข้อมูลหัวหน้ากิลด์', '', prow.LeaderName + ' (' + prow.LeaderNick + ')']); profileChanged = true; }
+      if (pcol.TypeCounts !== undefined && String(old[pcol.TypeCounts] || '{}') !== prow.TypeCounts) profileChanged = true;
       if (String(old[pcol.TotalMembers]) !== String(total)) { logs.push(['แก้ไข', 'จำนวนสมาชิกทั้งหมด', '', (old[pcol.TotalMembers] || '—') + ' → ' + (total === '' ? '—' : total)]); profileChanged = true; }
       if (profileChanged) psh.getRange(pi + 1, 1, 1, pvals.length).setValues([pvals]);
     } else if (prow.LeaderName || prow.LeaderNick || prow.LeaderFB || total !== '') {
@@ -903,7 +923,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
     const profileUpdatedAt = profileChanged || pi < 0 ? now.toISOString()
       : (pdata[pi][pcol.UpdatedAt] instanceof Date ? pdata[pi][pcol.UpdatedAt].toISOString() : String(pdata[pi][pcol.UpdatedAt] || ''));
     const profile = { leaderName: prow.LeaderName, leaderNick: prow.LeaderNick, leaderPhone: prow.LeaderPhone.slice(1), leaderFb: prow.LeaderFB,
-      totalMembers: total === '' ? null : total, updatedAt: profileUpdatedAt };
+      totalMembers: total === '' ? null : total, updatedAt: profileUpdatedAt, typeCounts: typeCounts };
     if (skipList) {
       if (logs.length) appendRows_('MemberLog', logs.map(function (l) { return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: '', Detail: l[3] }; }));
       return Object.assign(membersOf_(g, [], profile), { changes: logs.length, ms: Date.now() - t0 });
@@ -1114,6 +1134,8 @@ function dashboard_(g, year, month) {
     totalThisYear: mine.length,
     daily: dailyCounts_(thisMonth, year, month),
     stats: guildStats_(mine, monthly, rule),
+    reward: rewardPreview_(g, ym, monthScore, rule),
+    season: seasonStatus_(g, year, monthly, rule),
     updatedAt: new Date().toISOString()
   };
   cache.put(key, JSON.stringify(out), DASH_CACHE_SEC);
@@ -1235,6 +1257,7 @@ function getSheet_(name) {
   }
   else if (name.indexOf('Reports_') === 0) ensureHead_(sh, HEAD.Reports, name);
   else if (name === 'Members' || name.indexOf('MemberSnapshots_') === 0) ensureHead_(sh, HEAD[name === 'Members' ? 'Members' : 'MemberSnapshots'], name);
+  else if (name === 'GuildProfiles') ensureHead_(sh, HEAD.GuildProfiles, name);
   MEMO_.sheets[name] = sh;
   return sh;
 }
@@ -1270,7 +1293,7 @@ function readReports_(year) {
  * อ่านแท็บเป็น object · แท็บที่ไม่ค่อยเปลี่ยน (Guilds/Missions/RankRules) เก็บ Cache 5 นาที
  * เขียนผ่านโค้ด = ล้าง Cache ทันที · แก้ในชีตด้วยมือ = มีผลภายใน 5 นาที (หรือรัน clearAllCache)
  */
-const CACHED_TABS = { Guilds: true, Missions: true, RankRules: true, GuildProfiles: true };   // GuildProfiles เขียนผ่าน saveMembers_ เท่านั้น (ล้าง cache ให้เอง)
+const CACHED_TABS = { Guilds: true, Missions: true, RankRules: true, GuildProfiles: true, BenefitSets: true, MemberTypes: true };   // GuildProfiles เขียนผ่าน saveMembers_ เท่านั้น (ล้าง cache ให้เอง)
 const ROWS_CACHE_SEC = 300;
 
 function readRows_(name) {
@@ -1361,4 +1384,258 @@ let DOPOST_T0_ = 0;
 function json_(o) {
   if (DOPOST_T0_) o.ms = Date.now() - DOPOST_T0_;
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ===================================================================
+// Benefit — รางวัลตาม Rank (ทีมแก้ไอเทมเองได้ใน CTM · มีผลตั้งแต่เดือนที่ตั้ง)
+// Zone4 = แอดไอเทมเข้า EXE Number · TOSM/9Yin = แจก Code ตามประเภทสมาชิก (ดึงจากคลัง Code)
+// ===================================================================
+
+/** ชนิดชุดรางวัล (ลำดับ = ลำดับแสดงใน CTM) */
+const BENEFIT_KINDS = {
+  rankS: 'Benefit Rank S', rankSS: 'Benefit Rank SS', leader: 'Benefit หัวหน้า Guild', cute: 'Benefit Cute Guild',
+  meeting1: 'Benefit Guild Meeting - อันดับ 1', meeting2: 'Benefit Guild Meeting - อันดับ 2', meeting3: 'Benefit Guild Meeting - อันดับ 3',
+  risingstar: 'Benefit Rising Star'
+};
+
+/** ค่าเริ่มต้นจากไฟล์ "07 - จัด Item_Zone4 Extreme_..._Q4_2569" (สร้างครั้งแรกครั้งเดียว · หลังจากนั้นทีมแก้ใน CTM) */
+function seedBenefits_() {
+  const sh = getSheet_('BenefitSets');
+  if (sh.getLastRow() > 1) return;
+  const it = function (name, id, amount, value) { return { name: name, id: id, amount: amount, value: value, type: 'แลกไม่ได้' }; };
+  const liquids = [it('Detergent Liquid', '461031', 1, 39), it('Separation Liquid', '461032', 1, 9), it('Restore Liquid', '461033', 1, 39)];
+  const head = [it('G.E_Upgrade Protect Coupon', '10010103', 10, 100), it('Universal Adapter', '10015001', 10, 290),
+    it('ORB Detach', '10010801', 10, 200), it('Myshop Viewer [1ชั่วโมง]', '11000121', 50, 500)];
+  const sets = {
+    rankS: liquids.concat([it('3ชั่วโมง Get EXP +200%', '11002215', 3, 147), it('Super Skill Upgrade', '10010101', 10, 100)]),
+    rankSS: liquids.concat([it('3ชั่วโมง Get EXP +200%', '11002215', 6, 294), it('Super Skill Upgrade', '10010101', 20, 200)]),
+    leader: head,
+    cute: liquids.concat([it('3ชั่วโมง Get EXP +200%', '11002215', 3, 147), it('Super Skill Upgrade', '10010101', 10, 100)]),
+    meeting1: head, meeting2: [], meeting3: [], risingstar: []
+  };
+  const now = new Date();
+  appendRows_('BenefitSets', Object.keys(sets).map(function (k) {
+    return { SetID: 'BS-' + Utilities.getUuid().slice(0, 8), Game: 'z4', Kind: k, Name: BENEFIT_KINDS[k], FromYM: "'2026-10",
+      Method: 'add', Items: JSON.stringify(sets[k]), Active: true, UpdatedAt: now };
+  }));
+}
+function seedMemberTypes_() {
+  const sh = getSheet_('MemberTypes');
+  if (sh.getLastRow() > 1) return;
+  appendRows_('MemberTypes', ['tosm', '9yin'].reduce(function (a, g) {
+    return a.concat([{ Game: g, TypeID: 'leader', Name: 'หัวหน้ากิลด์', CodesPer: 1, Order: 1 },
+      { Game: g, TypeID: 'member', Name: 'สมาชิก', CodesPer: 1, Order: 2 }]);
+  }, []));
+}
+
+function benefitRows_() {
+  seedBenefits_();
+  return readRows_('BenefitSets').map(function (x) {
+    let items = [];
+    try { items = JSON.parse(x.Items || '[]'); } catch (e) { items = []; }
+    return { id: x.SetID, game: x.Game, kind: x.Kind, name: x.Name || BENEFIT_KINDS[x.Kind] || x.Kind, fromYM: ymStr_(x.FromYM),
+      method: x.Method || 'add', items: items, active: x.Active !== false && String(x.Active).toLowerCase() !== 'false',
+      total: items.reduce(function (s, i) { return s + (Number(i.value) || 0); }, 0) };
+  });
+}
+/** ชุดรางวัลที่มีผลในเดือนนั้น (ล่าสุดที่ FromYM ≤ ym) — เปลี่ยนไอเทมเดือนใหม่ไม่กระทบเดือนเก่า */
+function benefitSetFor_(game, kind, ym) {
+  return benefitRows_().filter(function (s) { return s.game === game && s.kind === kind && s.active && s.fromYM <= ym; })
+    .sort(function (a, b) { return a.fromYM < b.fromYM ? 1 : -1; })[0] || null;
+}
+function memberTypesOf_(game) {
+  seedMemberTypes_();
+  return readRows_('MemberTypes').filter(function (t) { return t.Game === game; })
+    .sort(function (a, b) { return Number(a.Order) - Number(b.Order); })
+    .map(function (t) { return { id: String(t.TypeID), name: String(t.Name), codesPer: Number(t.CodesPer) || 0 }; });
+}
+function typeCountsOf_(email) {
+  const p = readRows_('GuildProfiles').filter(function (x) { return x.Email === email; })[0];
+  try { return p && p.TypeCounts ? JSON.parse(p.TypeCounts) : {}; } catch (e) { return {}; }
+}
+function codesNeeded_(game, counts) {
+  return memberTypesOf_(game).reduce(function (s, t) { return s + (Number(counts[t.id]) || 0) * t.codesPer; }, 0);
+}
+
+/** การ์ด Rank + รางวัลบนเว็บกิลด์ */
+function rewardPreview_(g, ym, monthScore, rule) {
+  const rank = rankOf_(monthScore, rule), z4 = isZ4_(g.Game);
+  const next = rank === 'SS' ? null : rank === 'S' ? { rank: 'SS', need: rule.ss - monthScore } : { rank: 'S', need: rule.s - monthScore };
+  const pick = function (kind) { const s = benefitSetFor_(g.Game, kind, ym); return s ? { name: s.name, items: s.items, total: s.total } : null; };
+  const out = { rank: rank, next: next, method: z4 ? 'add' : 'code' };
+  if (z4) {
+    out.rankS = pick('rankS'); out.rankSS = pick('rankSS'); out.leader = pick('leader'); out.cute = pick('cute');
+  } else {
+    const counts = typeCountsOf_(g.Email);
+    out.types = memberTypesOf_(g.Game).map(function (t) { return { name: t.name, count: Number(counts[t.id]) || 0, codesPer: t.codesPer }; });
+    out.codes = codesNeeded_(g.Game, counts);
+  }
+  return out;
+}
+
+/** Rising Star (TOP 3 คะแนนรวม ม.ค.–มี.ค. / ก.ค.–ก.ย.) + Guild Meeting (S/SS อย่างน้อย 4 ใน 6 เดือน) */
+function seasonStatus_(g, year, monthly, rule) {
+  const m = new Date().getFullYear() === year ? new Date().getMonth() + 1 : 12;
+  const win = m <= 6 ? [1, 3] : [7, 9];
+  const rows = readReports_(year).filter(function (x) { return x.Game === g.Game && x.Status === STATUS.APPROVED; });
+  const sum = {};
+  rows.forEach(function (x) {
+    const mo = Number(String(x.YM).slice(5, 7));
+    if (mo >= win[0] && mo <= win[1]) sum[x.Email] = (sum[x.Email] || 0) + (Number(x.ApprovedPoints) || 0);
+  });
+  const order = Object.keys(sum).sort(function (a, b) { return sum[b] - sum[a]; });
+  const pos = order.indexOf(g.Email);
+  const half = m <= 6 ? [0, 6] : [6, 12];
+  const sMonths = monthly.slice(half[0], half[1]).filter(function (v) { return v >= rule.s; }).length;
+  return { rising: { from: win[0], to: win[1], score: sum[g.Email] || 0, position: pos < 0 ? null : pos + 1, top3: pos >= 0 && pos < 3 },
+    meeting: { half: m <= 6 ? 1 : 2, sMonths: sMonths, need: 4, ok: sMonths >= 4 },
+    monthsS: monthly.filter(function (v) { return v >= rule.s; }).length };
+}
+
+// ---------- CTM: ตั้งค่า Benefit ----------
+function benefitConfig_(game) {
+  const sets = benefitRows_().filter(function (s) { return s.game === game; });
+  const latest = {};
+  sets.forEach(function (s) { if (!latest[s.kind] || latest[s.kind].fromYM < s.fromYM) latest[s.kind] = s; });
+  const pool = isZ4_(game) ? null : readRows_('CodePool').filter(function (c) { return c.Game === game; });
+  return { kinds: BENEFIT_KINDS, sets: Object.keys(latest).map(function (k) { return latest[k]; }),
+    history: sets.length, types: isZ4_(game) ? [] : memberTypesOf_(game),
+    codes: pool ? { left: pool.filter(function (c) { return !c.Email; }).length, used: pool.filter(function (c) { return !!c.Email; }).length } : null };
+}
+function saveBenefitSet_(s) {
+  if (!s || !GAMES[s.game] || !s.kind) throw new Error('ข้อมูลชุดรางวัลไม่ครบ');
+  const fromYM = String(s.fromYM || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(fromYM)) throw new Error('เลือกเดือนที่มีผล');
+  const items = (s.items || []).map(function (i) {
+    return { name: String(i.name || '').trim().slice(0, 120), id: String(i.id || '').trim().slice(0, 40), amount: Number(i.amount) || 0,
+      value: Number(i.value) || 0, type: String(i.type || '').trim().slice(0, 40) };
+  }).filter(function (i) { return i.name; });
+  return withLock_(function () {
+    const sh = getSheet_('BenefitSets'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
+    const row = { SetID: '', Game: s.game, Kind: String(s.kind).slice(0, 40), Name: String(s.name || BENEFIT_KINDS[s.kind] || s.kind).slice(0, 120),
+      FromYM: "'" + fromYM, Method: isZ4_(s.game) ? 'add' : 'code', Items: JSON.stringify(items), Active: true, UpdatedAt: new Date() };
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][col.Game] === s.game && data[i][col.Kind] === row.Kind && ymStr_(data[i][col.FromYM]) === fromYM) {
+        row.SetID = data[i][col.SetID];
+        sh.getRange(i + 1, 1, 1, data[0].length).setValues([data[0].map(function (h) { return row[h] === undefined ? '' : row[h]; })]);
+        clearRows_('BenefitSets');
+        return benefitConfig_(s.game);
+      }
+    }
+    row.SetID = 'BS-' + Utilities.getUuid().slice(0, 8);
+    appendRows_('BenefitSets', [row]);
+    return benefitConfig_(s.game);
+  });
+}
+function saveMemberTypes_(game, types) {
+  if (!GAMES[game] || isZ4_(game)) throw new Error('ประเภทสมาชิกใช้กับ TOSM / 9Yin เท่านั้น');
+  const clean = (types || []).map(function (t, i) {
+    return { Game: game, TypeID: String(t.id || ('t' + Utilities.getUuid().slice(0, 6))).slice(0, 30), Name: String(t.name || '').trim().slice(0, 60),
+      CodesPer: Math.max(0, Math.floor(Number(t.codesPer) || 0)), Order: i + 1 };
+  }).filter(function (t) { return t.Name; });
+  if (!clean.length) throw new Error('ต้องมีอย่างน้อย 1 ประเภท');
+  return withLock_(function () {
+    seedMemberTypes_();
+    const sh = getSheet_('MemberTypes'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
+    const keep = data.slice(1).filter(function (r) { return r.join('') !== '' && r[col.Game] !== game; });
+    const rows = keep.concat(clean.map(function (t) { return data[0].map(function (h) { return t[h] === undefined ? '' : t[h]; }); }));
+    sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), data[0].length).clearContent();
+    if (rows.length) sh.getRange(2, 1, rows.length, data[0].length).setValues(rows);
+    clearRows_('MemberTypes');
+    return benefitConfig_(game);
+  });
+}
+function addCodes_(game, codes) {
+  if (!GAMES[game] || isZ4_(game)) throw new Error('คลัง Code ใช้กับ TOSM / 9Yin เท่านั้น');
+  const list = (codes || []).map(function (c) { return String(c || '').trim(); }).filter(function (c) { return c && c.length <= 80; });
+  if (!list.length) throw new Error('ไม่พบ Code');
+  return withLock_(function () {
+    const have = {};
+    readRows_('CodePool').forEach(function (c) { have[String(c.Code).replace(/^'/, '')] = true; });
+    const now = new Date(), fresh = [], dup = [];
+    list.forEach(function (c) { if (have[c]) dup.push(c); else { have[c] = true; fresh.push(c); } });
+    if (fresh.length) appendRows_('CodePool', fresh.map(function (c) { return { Code: "'" + c, Game: game, AddedAt: now }; }));
+    return Object.assign(benefitConfig_(game), { added: fresh.length, duplicate: dup.length });
+  });
+}
+
+/** สรุปรางวัลประจำเดือนทุกกิลด์ของเกม (CTM) */
+function rewardSummary_(game, year, month) {
+  const ym = ymOf_(year, month), rule = rankRule_(game, year), z4 = isZ4_(game);
+  const score = {};
+  readReports_(year).forEach(function (x) {
+    if (x.Game === game && x.Status === STATUS.APPROVED && x.YM === ym) score[x.Email] = (score[x.Email] || 0) + (Number(x.ApprovedPoints) || 0);
+  });
+  const missing = allCompleteness_();
+  const members = z4 ? readRows_('Members').filter(function (m) { return m.Game === game; }) : [];
+  const pool = z4 ? [] : readRows_('CodePool').filter(function (c) { return c.Game === game && c.YM && ymStr_(c.YM) === ym; });
+  return listGuilds_(game).filter(function (g) { return g.active; }).map(function (g) {
+    const s = score[g.email] || 0, rank = rankOf_(s, rule);
+    const o = { email: g.email, guild: g.nameTH, score: s, rank: rank, missing: missing[g.email] || [] };
+    if (z4) {
+      const mine = members.filter(function (m) { return m.Email === g.email; });
+      o.eligible = mine.filter(function (m) { return Number(m.Level) >= (LEVEL_MIN[game] || 0) && m.InGameID; }).length;
+      o.cute = mine.filter(function (m) { return ymStr_(m.CuteYM) === ym; }).length;
+      o.cuteGuild = (cuteGuild_({ Email: g.email, Game: game }) || {}).achieved || false;
+    } else {
+      const counts = typeCountsOf_(g.email);
+      o.types = memberTypesOf_(game).map(function (t) { return { name: t.name, count: Number(counts[t.id]) || 0 }; });
+      o.codesNeeded = codesNeeded_(game, counts);
+      o.codesGiven = pool.filter(function (c) { return c.Email === g.email; }).length;
+    }
+    return o;
+  });
+}
+
+/** แจก Code เดือนนี้ (TOSM/9Yin) — เฉพาะกิลด์ Rank S ขึ้นไป · ไม่ซ้ำ · แจกเพิ่มเฉพาะส่วนที่ยังขาด */
+function distributeCodes_(game, year, month) {
+  if (isZ4_(game)) throw new Error('Zone4 ใช้การแอดไอเทม ไม่ใช่ Code');
+  const ym = ymOf_(year, month);
+  return withLock_(function () {
+    const sum = rewardSummary_(game, year, month).filter(function (g) { return g.rank; });
+    const sh = getSheet_('CodePool'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
+    const free = [];
+    for (let i = 1; i < data.length; i++) if (data[i][col.Game] === game && !data[i][col.Email] && data[i][col.Code] !== '') free.push(i);
+    const need = sum.reduce(function (s, g) { return s + Math.max(0, g.codesNeeded - g.codesGiven); }, 0);
+    if (need > free.length) throw new Error('Code ในคลังไม่พอ — ต้องใช้ ' + need + ' · เหลือ ' + free.length);
+    const now = new Date(), out = [];
+    let k = 0;
+    sum.forEach(function (g) {
+      const n = Math.max(0, g.codesNeeded - g.codesGiven);
+      for (let j = 0; j < n; j++) {
+        const i = free[k++];
+        data[i][col.Email] = g.email; data[i][col.GuildNameTH] = g.guild; data[i][col.YM] = "'" + ym; data[i][col.AssignedAt] = now; data[i][col.Status] = 'assigned';
+      }
+      if (n) out.push({ guild: g.guild, codes: n });
+    });
+    if (k) sh.getRange(2, 1, data.length - 1, data[0].length).setValues(data.slice(1));
+    clearRows_('CodePool');
+    return { assigned: k, guilds: out };
+  });
+}
+/** Code ที่แจกแล้วของเดือน (Export ให้ส่งกิลด์) */
+function codesOf_(game, year, month) {
+  const ym = ymOf_(year, month);
+  return readRows_('CodePool').filter(function (c) { return c.Game === game && c.Email && ymStr_(c.YM) === ym; })
+    .map(function (c) { return { guild: c.GuildNameTH, email: c.Email, code: String(c.Code).replace(/^'/, '') }; });
+}
+/** แถวสำหรับไฟล์ "แอด Item" ของ Zone4 (ทุกคนที่ผ่านเกณฑ์ × ไอเทมตาม Rank + หัวหน้า + Cute Gang) */
+function addItemRows_(game, year, month) {
+  if (!isZ4_(game)) throw new Error('ไฟล์แอด Item ใช้กับ Zone4');
+  const ym = ymOf_(year, month), min = LEVEL_MIN[game] || 0;
+  const members = readRows_('Members').filter(function (m) { return m.Game === game; });
+  const rows = [];
+  rewardSummary_(game, year, month).forEach(function (g) {
+    if (!g.rank) return;
+    const set = benefitSetFor_(game, g.rank === 'SS' ? 'rankSS' : 'rankS', ym);
+    const lead = benefitSetFor_(game, 'leader', ym), cute = benefitSetFor_(game, 'cute', ym);
+    members.filter(function (m) { return m.Email === g.email && Number(m.Level) >= min && m.InGameID; }).forEach(function (m) {
+      const exe = String(m.InGameID).replace(/^'/, '');
+      const push = function (s) { if (s) s.items.forEach(function (it) { rows.push([g.guild, exe, m.CharName, s.name, it.name, it.id, it.amount]); }); };
+      push(set);
+      if (m.Role === 'leader') push(lead);
+      if (g.cuteGuild && ymStr_(m.CuteYM) === ym) push(cute);
+    });
+  });
+  return { head: ['กิลด์', 'EXE Number', 'ชื่อตัวละคร', 'ชุดรางวัล', 'Item Name', 'Item ID', 'Amount'], rows: rows };
 }

@@ -304,6 +304,10 @@
     state.profile = Object.assign({}, d.profile || {});
     $('m-leader').querySelectorAll('[data-p]').forEach((el) => { el.value = state.profile[el.dataset.p] || ''; });
     $('m-total').value = state.profile.totalMembers == null ? '' : state.profile.totalMembers;
+    // TOSM/9Yin: จำนวนคนแยกตามประเภทที่ทีมตั้งใน CTM → รวมเป็นจำนวนสมาชิกทั้งหมดให้เอง
+    const types = d.types || [], tc = state.profile.typeCounts || {};
+    $('m-types').innerHTML = types.length ? types.map((t) => `<label class="m-type"><span>${esc(t.name)}<small class="muted"> · ${t.codesPer} Code/คน</small></span><input type="number" min="0" max="9999" inputmode="numeric" data-t="${esc(t.id)}" value="${tc[t.id] || ''}" placeholder="0"></label>`).join('') : '';
+    $('m-total').readOnly = !!types.length;
     setGuildInfo(d.info);
   }
 
@@ -400,6 +404,13 @@
     });
     state.profile = state.profile || {};
     $('m-leader').querySelectorAll('[data-p]').forEach((el) => { state.profile[el.dataset.p] = el.value.trim(); });
+    const tIns = $('m-types').querySelectorAll('[data-t]');
+    if (tIns.length) {
+      state.profile.typeCounts = {};
+      let sum = 0;
+      tIns.forEach((el) => { const n = Math.max(0, Math.floor(Number(el.value) || 0)); if (n) state.profile.typeCounts[el.dataset.t] = n; sum += n; });
+      $('m-total').value = sum || '';
+    }
   }
 
   function addMembers(rows, focus) {
@@ -713,6 +724,51 @@
       (withBtn ? '<div class="notice-act"><button type="button" class="btn go-mem">👥 ตรวจรายชื่อ</button></div>' : '') + '</div>';
   }
 
+  /** เตือน 3 วันสุดท้ายของเดือน: ระบบล็อกรายชื่อ 23:30 วันสุดท้าย → ส่งรางวัลตามรายชื่อนั้น */
+  function closingHtml() {
+    const n = new Date(), last = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate(), left = last - n.getDate();
+    if (left > 2) return '';
+    const info = state.guildInfo, todo = [];
+    if (info && info.steps) info.steps.forEach((s) => { if (!s.ok) todo.push(s.key === 'cute' ? `ยังไม่ได้เลือก 💖 Cute Gang (${s.count || 0}/5)` : s.label); });
+    const when = left === 0 ? 'วันนี้' : `อีก ${left} วัน`;
+    return `<div class="notice closing"><div>⏰ <b>${when} ปิดรอบ ${MONTHS[n.getMonth()]}</b> (${last} ${MONTHS[n.getMonth()]} 23:30) — ระบบจะล็อกรายชื่อเพื่อส่งรางวัล` +
+      (todo.length ? `<br><span class="muted">${todo.map(esc).join(' · ')}</span>` : '<br><span class="muted">ข้อมูลกิลด์ครบแล้ว ✓ ตรวจรายชื่ออีกครั้งได้ก่อนปิดรอบ</span>') +
+      `</div><div class="notice-act"><button type="button" class="btn go-mem">ไปที่ข้อมูลกิลด์ →</button></div></div>`;
+  }
+
+  /** การ์ดรางวัลเดือนนี้ตาม Rank — Zone4 = ไอเทม · TOSM/9Yin = จำนวน Code ตามประเภทสมาชิก */
+  function renderReward(d) {
+    const box = $('d-reward'), rw = d.reward;
+    if (!rw) { box.hidden = true; return; }
+    box.hidden = false;
+    const items = (s) => s && s.items.length ? `<details><summary>ดูรายการไอเทม (${s.items.length}) · มูลค่า ฿${fmtNum(s.total)}</summary><ul>${s.items.map((i) => `<li>${esc(i.name)} <span class="muted">× ${fmtNum(i.amount)}</span></li>`).join('')}</ul></details>` : '<span class="muted">ทีมงานยังไม่ได้ตั้งรายการไอเทม</span>';
+    const head = rw.rank ? `🎁 เดือนนี้ได้ <b>Rank ${rw.rank}</b>` : '🎯 ยังไม่ถึง Rank S';
+    const next = rw.next ? ` · อีก <b>${fmtNum(rw.next.need)}</b> คะแนน จะได้ Rank ${rw.next.rank}` : ' · สูงสุดแล้ว 🎉';
+    let body;
+    if (rw.method === 'add') {
+      const cur = rw.rank === 'SS' ? rw.rankSS : rw.rank === 'S' ? rw.rankS : null, nx = !rw.rank ? rw.rankS : rw.rank === 'S' ? rw.rankSS : null;
+      const cg = d.cuteGuild;
+      body = `<div class="rw-grid">` +
+        `<div><b>${cur ? '✅ ' + esc(cur.name) : '🔒 ' + esc((nx && nx.name) || 'Benefit Rank S')}</b><div class="muted">${cur ? 'สมาชิกทุกคน (Level ผ่านเกณฑ์) ได้รับ' : 'ทำคะแนนให้ถึงเพื่อรับ'}</div>${items(cur || nx)}</div>` +
+        (rw.leader ? `<div><b>👑 ${esc(rw.leader.name)}</b><div class="muted">หัวหน้ากิลด์ ${rw.rank ? 'ได้รับเพิ่ม' : '(เมื่อได้ Rank S ขึ้นไป)'}</div>${items(rw.leader)}</div>` : '') +
+        (rw.cute ? `<div><b>💖 ${esc(rw.cute.name)}</b><div class="muted">Cute Gang 5 คน · ${cg && cg.achieved ? 'เข้าเงื่อนไขแล้ว ✓' : `ส่ง Feedback อีก ${Math.max(0, ((cg && cg.need) || 3) - ((cg && cg.count) || 0))} ครั้ง`}</div>${items(rw.cute)}</div>` : '') +
+        `</div>`;
+    } else {
+      body = `<div class="rw-grid"><div><b>🎟️ ได้รับ Code ${rw.rank ? '' : '(เมื่อได้ Rank S ขึ้นไป) '}รวม ${fmtNum(rw.codes)} Code</b><div class="muted">${rw.types.map((t) => `${esc(t.name)} ${t.count} คน × ${t.codesPer}`).join(' · ') || 'กรอกจำนวนสมาชิกแต่ละประเภทที่แท็บ 🛡️ ข้อมูลกิลด์'}</div></div></div>`;
+    }
+    box.innerHTML = `<div class="rw-head">${head}${next}</div>${body}`;
+  }
+
+  /** สรุปทั้งปี: เดือนที่ได้ S ขึ้นไป · Rising Star · Guild Meeting */
+  function renderSeason(d) {
+    const s = d.season, box = $('d-season');
+    if (!s) { box.innerHTML = ''; return; }
+    const r = s.rising, m = s.meeting;
+    box.innerHTML = `<div><b>${s.monthsS} / 12</b><span>เดือนที่ได้ S ขึ้นไป</span></div>` +
+      `<div class="${r.top3 ? 'ok' : ''}"><b>${r.position ? 'อันดับ ' + r.position : '—'}</b><span>Rising Star ${MONTHS[r.from - 1]}–${MONTHS[r.to - 1]}${r.top3 ? ' · TOP 3 ✓' : ''}</span></div>` +
+      `<div class="${m.ok ? 'ok' : ''}"><b>${m.sMonths} / 6</b><span>Guild Meeting ครึ่งปี${m.half === 1 ? 'แรก' : 'หลัง'} (ต้อง ${m.need})${m.ok ? ' ✓' : ''}</span></div>`;
+  }
+
   function renderDash(d) {
     const rule = d.rule, sc = d.monthScore, now = new Date();
     const isNow = d.year === now.getFullYear() && d.month === now.getMonth() + 1;
@@ -728,7 +784,7 @@
         `<div class="notice-act"><button type="button" class="btn go-send">📤 ส่ง Report แรก</button><button type="button" class="btn ghost open-help2">📖 วิธีใช้งาน</button></div></div>` : '';
     let slot = $('d-slot');
     if (!slot) { slot = document.createElement('div'); slot.id = 'd-slot'; $('d-notice').appendChild(slot); }
-    slot.innerHTML = (isNow ? deadlineHtml() + snapshotNoticeHtml(true) : '') + welcome;
+    slot.innerHTML = (isNow ? closingHtml() + deadlineHtml() + snapshotNoticeHtml(true) : '') + welcome;
     const gm = slot.querySelector('.go-mem'); if (gm) gm.onclick = () => switchPage('mem');
     const gs = slot.querySelector('.go-send'); if (gs) gs.onclick = () => switchPage('send');
     const oh = slot.querySelector('.open-help2'); if (oh) oh.onclick = () => { $('help').hidden = false; };
@@ -764,8 +820,10 @@
     $('c-title').textContent = 'คะแนนรายเดือน ปี ' + (d.year + 543);
     const top = Math.max.apply(null, d.monthly.concat([1]));
     $('bars').innerHTML = d.monthly.map((v, i) =>
-      `<div class="${i + 1 === d.month ? 'cur' : ''}${v >= rule.ss ? ' ss' : ''}" style="--h:${(v / top) * 100}%;--i:${i}" title="${MONTHS[i]}: ${v}${v >= rule.ss ? ' · SS' : ''}">${v ? `<em>${v >= rule.ss ? '⭐ ' : ''}${v}</em>` : ''}<span>${MONTHS[i]}</span></div>`).join('');
+      `<div class="${i + 1 === d.month ? 'cur' : ''}${v >= rule.ss ? ' ss' : v >= rule.s ? ' s' : ''}" style="--h:${(v / top) * 100}%;--i:${i}" title="${MONTHS[i]}: ${v}${v >= rule.ss ? ' · SS' : ''}">${v ? `<em>${v >= rule.ss ? '⭐ ' : ''}${v}</em>` : ''}<span>${MONTHS[i]}</span></div>`).join('');
 
+    renderReward(d);
+    renderSeason(d);
     renderHeat(d);
     renderBadges(d);
 
@@ -1348,7 +1406,12 @@
       return { year: b.year, month: b.month, monthScore: sc, yearScore: monthly.reduce((a, c) => a + c, 0), monthly: monthly,
         rank: sc >= 200 ? 'SS' : sc >= 100 ? 'S' : '', rule: { ss: 200, s: 100 }, pending: this.reports.length, rejected: 1,
         perMission: this.missionList.map((m, i) => ({ id: m.id, name: m.name, points: m.points, maxPerMonth: m.maxPerMonth, maxScope: m.maxScope, used: [1, 0, 1, 0, 0, 0][i], score: [20, 0, 50, 0, 0, 0][i] })),
-        cuteGuild: null, updatedAt: new Date().toISOString() };
+        cuteGuild: { count: 2, need: 3, achieved: false }, updatedAt: new Date().toISOString(),
+        reward: { rank: sc >= 200 ? 'SS' : sc >= 100 ? 'S' : '', next: sc >= 200 ? null : { rank: sc >= 100 ? 'SS' : 'S', need: (sc >= 100 ? 200 : 100) - sc }, method: 'add',
+          rankS: { name: 'Benefit Rank S', total: 334, items: [{ name: 'Detergent Liquid', amount: 1 }, { name: 'Super Skill Upgrade', amount: 10 }] },
+          rankSS: { name: 'Benefit Rank SS', total: 581, items: [{ name: 'Detergent Liquid', amount: 1 }, { name: 'Super Skill Upgrade', amount: 20 }] },
+          leader: { name: 'Benefit หัวหน้า Guild', total: 1090, items: [{ name: 'Universal Adapter', amount: 10 }] }, cute: { name: 'Benefit Cute Guild', total: 334, items: [{ name: 'Detergent Liquid', amount: 1 }] } },
+        season: { monthsS: 3, rising: { from: 7, to: 9, score: 375, position: 2, top3: true }, meeting: { half: 2, sMonths: 1, need: 4, ok: false } } };
     }
   };
 
@@ -1406,6 +1469,7 @@
     $('m-body').addEventListener('input', () => setMemDirty(true));
     $('m-leader').addEventListener('input', () => setMemDirty(true));
     $('m-total').addEventListener('input', () => { setMemDirty(true); pullMembers(); renderMembers(); });
+    $('m-types').addEventListener('input', () => { setMemDirty(true); pullMembers(); renderMembers(); });
     // ออกจากช่อง Level/ID → วาดใหม่ให้แถบ Level และเตือน ID ซ้ำอัปเดต
     $('m-body').addEventListener('change', (ev) => { if (ev.target.dataset.f) { pullMembers(); setMemDirty(true); renderMembers(); } });
     // เลือกหลายแถว (ไม่นับเป็นการแก้ไข จนกว่าจะกดลบ)

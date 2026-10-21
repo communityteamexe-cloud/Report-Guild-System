@@ -143,6 +143,8 @@
             <div class="ring-c"><b id="r-pct">0%</b><span id="r-next">ถึง S</span></div>
           </div>
         </div>
+        <!-- รางวัลเดือนนี้ตาม Rank (ไอเทม / Code) -->
+        <div class="card span4 reward" id="d-reward" hidden></div>
         <div class="card kpi"><div class="muted" id="k-year-l">คะแนนสะสมทั้งปี</div><div class="n" id="k-year">–</div></div>
         <div class="card kpi"><div class="muted">รอตรวจ</div><div class="n warn" id="k-pend">–</div></div>
         <div class="card kpi"><div class="muted">ถูกปฏิเสธ</div><div class="n bad" id="k-rej">–</div></div>
@@ -150,6 +152,7 @@
         <div class="card span2">
           <h3 id="c-title">คะแนนรายเดือน</h3>
           <div class="bars" id="bars"></div>
+          <div class="season" id="d-season"></div>
         </div>
         <div class="card span2">
           <h3>คะแนนแยก Mission</h3>
@@ -228,6 +231,7 @@
       <!-- จำนวนสมาชิกทั้งหมด (ทุกเกม) -->
       <div class="card m-sec m-total" id="m-total-card">
         <div class="eyebrow">2 · จำนวนสมาชิกกิลด์ทั้งหมด <span class="pill rejected">สำคัญ</span></div>
+        <div class="m-types" id="m-types"></div>
         <div class="m-total-row"><input id="m-total" type="number" min="0" max="9999" inputmode="numeric" placeholder="0"><span class="muted">คน (ตามในเกม) · ใช้คำนวณจำนวนไอเทม Code ที่ทีมงานส่งให้</span></div>
         <p class="note" id="m-total-cmp"></p>
       </div>
