@@ -260,6 +260,7 @@ const ADMIN_ACTIONS = {
   adminCodeDistribute: function (r) { return distributeCodes_(r.game, Number(r.year), Number(r.month)); },
   adminCodeList: function (r) { return codesOf_(r.game, Number(r.year), Number(r.month)); },
   adminAddItemRows: function (r) { return addItemRows_(r.game, Number(r.year), Number(r.month)); },
+  adminSetFeedbackSource: function (r) { return setFeedbackSource_(r.id); },
   adminGuildOverview: function (r) { return guildOverview_(r.game || '', Number(r.year), Number(r.month)); }
 };
 
@@ -1133,7 +1134,7 @@ function dashboard_(g, year, month) {
     monthly: monthly, rank: rankOf_(monthScore, rule), rule: rule,
     pending: thisMonth.filter(function (x) { return x.Status === STATUS.PENDING; }).length,
     rejected: thisMonth.filter(function (x) { return x.Status === STATUS.REJECTED; }).length,
-    perMission: perMission, cuteGuild: cuteGuild_(g),
+    perMission: perMission, cuteGuild: cuteGuild_(g, ym),
     totalThisYear: mine.length,
     daily: dailyCounts_(thisMonth, year, month),
     stats: guildStats_(mine, monthly, rule),
@@ -1200,7 +1201,47 @@ function reviewedSince_(g, since) {
 }
 
 /** Cute Guild (TOSM/9Yin): Feedback ที่อนุมัติแล้ว ≥ 3 ครั้งใน 30 วันล่าสุด */
-function cuteGuild_(g) {
+// ---------- Feedback จาก Google Forms (หน้า Weekly Guild Feedback ใน CTM) ----------
+// Zone4: Cute Guild = กิลด์ส่ง Feedback ผ่านฟอร์มครบ 3 ครั้งในเดือนนั้น (ไม่ใช่ Mission บนเว็บกิลด์)
+// CTM ส่ง ID ชีตคำตอบมาให้เอง (adminSetFeedbackSource) — ตามลิงก์ที่ตั้งใน CTM Dev Tool → Weekly Guild Feedback
+function normGuild_(s) { return String(s || '').toLowerCase().replace(/[\s'’‘`"“”.:_\-​]/g, ''); }
+function feedbackCounts_(ym) {
+  const id = PropertiesService.getScriptProperties().getProperty('FEEDBACK_SHEET_ID');
+  if (!id) return null;
+  const cache = CacheService.getScriptCache(), key = 'fbc_' + ym + '_' + id.slice(0, 8);
+  const hit = cache.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch (e) { /* อ่านใหม่ */ } }
+  const out = {};
+  try {
+    const data = SpreadsheetApp.openById(id).getSheets()[0].getDataRange().getValues();
+    const h = data[0] || [], col = function (re) { return h.findIndex(function (c) { return re.test(String(c)); }); };
+    const cT = col(/ประทับเวลา|timestamp/i), cG = col(/กิลด์|guild/i), cGame = col(/เกม|game/i);
+    if (cT < 0 || cG < 0) return out;
+    for (let i = 1; i < data.length; i++) {
+      const r = data[i], t = r[cT] instanceof Date ? r[cT] : new Date(r[cT]);
+      if (isNaN(t) || Utilities.formatDate(t, 'Asia/Bangkok', 'yyyy-MM') !== ym) continue;
+      if (cGame >= 0 && !/zone\s*4/i.test(String(r[cGame]))) continue;
+      const k = normGuild_(r[cG]); if (k) out[k] = (out[k] || 0) + 1;
+    }
+    cache.put(key, JSON.stringify(out), 600);
+  } catch (e) { return null; }
+  return out;
+}
+function setFeedbackSource_(id) {
+  id = String(id || '').trim();
+  const props = PropertiesService.getScriptProperties();
+  if (id) props.setProperty('FEEDBACK_SHEET_ID', id); else props.deleteProperty('FEEDBACK_SHEET_ID');
+  bumpSummary_();
+  return true;
+}
+
+function cuteGuild_(g, ym) {
+  if (isZ4_(g.Game)) {
+    const counts = feedbackCounts_(ym || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM'));
+    if (!counts) return null;
+    const n = Math.max(counts[normGuild_(g.NameTH)] || 0, counts[normGuild_(g.NameEN)] || 0);
+    return { count: n, need: 3, achieved: n >= 3, source: 'form' };
+  }
   const cuteIds = readRows_('Missions').filter(function (m) { return m.Game === g.Game && truthy_(m.CuteGuild); })
     .map(function (m) { return m.MissionID; });
   if (!cuteIds.length) return null;
@@ -1594,7 +1635,8 @@ function rewardSummaryRaw_(game, year, month) {
       const mine = members.filter(function (m) { return m.Email === g.email; });
       o.eligible = mine.filter(function (m) { return Number(m.Level) >= (LEVEL_MIN[game] || 0) && m.InGameID; }).length;
       o.cute = mine.filter(function (m) { return ymStr_(m.CuteYM) === ym; }).length;
-      o.cuteGuild = (cuteGuild_({ Email: g.email, Game: game }) || {}).achieved || false;
+      const cg = cuteGuild_({ Email: g.email, Game: game, NameTH: g.nameTH, NameEN: g.nameEN }, ym) || {};
+      o.cuteGuild = cg.achieved || false; o.feedback = cg.count || 0;
     } else {
       const counts = typeCountsOf_(g.email);
       o.types = memberTypesOf_(game).map(function (t) { return { name: t.name, count: Number(counts[t.id]) || 0 }; });
@@ -1680,7 +1722,7 @@ function guildOverview_(game, year, month) {
       score: score, rank: rankOf_(score, rule), needS: Math.max(0, rule.s - score), missing: missing[g.email] || [] };
     if (isZ4_(g.game)) {
       o.cute = members.filter(function (m) { return m.Email === g.email && ymStr_(m.CuteYM) === ym; }).length;
-      o.feedback = mine.filter(function (x) { return x.Status === STATUS.APPROVED && cuteIds[x.MissionID]; }).reduce(function (s, x) { return s + reportTimes_(x); }, 0);
+      o.feedback = ((cuteGuild_({ Email: g.email, Game: g.game, NameTH: g.nameTH, NameEN: g.nameEN }, ym) || {}).count) || 0;
     }
     return o;
   });

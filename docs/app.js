@@ -751,7 +751,7 @@
       body = `<div class="rw-grid">` +
         `<div><b>${cur ? '✅ ' + esc(cur.name) : '🔒 ' + esc((nx && nx.name) || 'Benefit Rank S')}</b><div class="muted">${cur ? 'สมาชิกทุกคน (Level ผ่านเกณฑ์) ได้รับ' : 'ทำคะแนนให้ถึงเพื่อรับ'}</div>${items(cur || nx)}</div>` +
         (rw.leader ? `<div><b>👑 ${esc(rw.leader.name)}</b><div class="muted">หัวหน้ากิลด์ ${rw.rank ? 'ได้รับเพิ่ม' : '(เมื่อได้ Rank S ขึ้นไป)'}</div>${items(rw.leader)}</div>` : '') +
-        (rw.cute ? `<div><b>💖 ${esc(rw.cute.name)}</b><div class="muted">Cute Gang 5 คน · ${cg && cg.achieved ? 'เข้าเงื่อนไขแล้ว ✓' : `ส่ง Feedback อีก ${Math.max(0, ((cg && cg.need) || 3) - ((cg && cg.count) || 0))} ครั้ง`}</div>${items(rw.cute)}</div>` : '') +
+        (rw.cute ? `<div><b>💖 ${esc(rw.cute.name)}</b><div class="muted">Cute Gang 5 คน · ${cg && cg.achieved ? 'เข้าเงื่อนไขแล้ว ✓' : `ส่ง Feedback${cg && cg.source === 'form' ? ' (ฟอร์ม Weekly Guild Feedback)' : ''} อีก ${Math.max(0, ((cg && cg.need) || 3) - ((cg && cg.count) || 0))} ครั้ง`}</div>${items(rw.cute)}</div>` : '') +
         `</div>`;
     } else {
       body = `<div class="rw-grid"><div><b>🎟️ ได้รับ Code ${rw.rank ? '' : '(เมื่อได้ Rank S ขึ้นไป) '}รวม ${fmtNum(rw.codes)} Code</b><div class="muted">${rw.types.map((t) => `${esc(t.name)} ${t.count} คน × ${t.codesPer}`).join(' · ') || 'กรอกจำนวนสมาชิกแต่ละประเภทที่แท็บ 🛡️ ข้อมูลกิลด์'}</div></div></div>`;
@@ -813,7 +813,7 @@
       : sc >= rule.s ? `อีก ${rule.ss - sc} คะแนน จะได้ Rank SS 🎯`
       : `อีก ${rule.s - sc} คะแนน จะได้ Rank S 🎯`;
     $('cute').innerHTML = d.cuteGuild
-      ? `<div class="badge">${d.cuteGuild.achieved ? '💖' : '🤍'} <div>Cute Guild: ส่ง Feedback ที่อนุมัติแล้ว <b>${d.cuteGuild.count} / ${d.cuteGuild.need}</b> ครั้งใน 30 วันล่าสุด${d.cuteGuild.achieved ? ' — <b>ผ่านเงื่อนไขแล้ว</b>' : ''}</div></div>`
+      ? `<div class="badge">${d.cuteGuild.achieved ? '💖' : '🤍'} <div>Cute Guild: ${d.cuteGuild.source === 'form' ? 'ส่ง Feedback ผ่านฟอร์มเดือนนี้' : 'ส่ง Feedback ที่อนุมัติแล้ว'} <b>${d.cuteGuild.count} / ${d.cuteGuild.need}</b> ครั้งใน 30 วันล่าสุด${d.cuteGuild.achieved ? ' — <b>ผ่านเงื่อนไขแล้ว</b>' : ''}</div></div>`
       : '';
     $('upd').textContent = 'อัปเดตล่าสุด ' + fmtDate(d.updatedAt) + ' น. · รีเฟรชอัตโนมัติทุก ' + Math.round((CFG.REFRESH_MS || 30000) / 1000) + ' วินาที';
 
