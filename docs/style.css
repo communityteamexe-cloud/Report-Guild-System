@@ -402,3 +402,5 @@ body.stale::after{content:"⟳ กำลังอัปเดต…";position:fi
 .m-type{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--muted);border-radius:12px;padding:8px 12px;margin:0}
 .m-type input{max-width:100px;font-size:16px;font-weight:700}
 #m-total[readonly]{background:var(--muted)}
+.reward .rw-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.reward .rw-head .btn{width:auto;margin:0;padding:6px 14px;font-size:13px}

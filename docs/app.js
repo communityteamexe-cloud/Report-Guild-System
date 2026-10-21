@@ -282,7 +282,8 @@
   // EXE Number แบบใหม่ (ตามประกาศ): ตัวอักษรอังกฤษพิมพ์ใหญ่ + ตัวเลข ยาวประมาณ 25 ตัว เช่น N0JXB57ENOQNCOKKDKICZUH76
   const EXE_NEW = /^[A-Z0-9]{20,40}$/;
   const EXE_INFO = '<button type="button" class="info-i" data-info="exe" aria-label="ดูวิธีเช็ค EXE Number">i</button>';
-  const isZ4 = () => state.guild && state.guild.game === 'z4';
+  // เกมแบบ "แอดไอเทมเข้า EXE Number" (Zone4 และเกมใหม่ที่ทีมตั้งแบบเดียวกันใน CTM)
+  const isZ4 = () => !!state.guild && (state.guild.method ? state.guild.method === 'add' : state.guild.game === 'z4');
 
   async function loadMembers() {
     const c = dataCache.get('members');
@@ -756,10 +757,41 @@
     } else {
       body = `<div class="rw-grid"><div><b>🎟️ ได้รับ Code ${rw.rank ? '' : '(เมื่อได้ Rank S ขึ้นไป) '}รวม ${fmtNum(rw.codes)} Code</b><div class="muted">${rw.types.map((t) => `${esc(t.name)} ${t.count} คน × ${t.codesPer}`).join(' · ') || 'กรอกจำนวนสมาชิกแต่ละประเภทที่แท็บ 🛡️ ข้อมูลกิลด์'}</div></div></div>`;
     }
-    box.innerHTML = `<div class="rw-head">${head}${next}</div>${body}`;
+    box.innerHTML = `<div class="rw-head"><span>${head}${next}</span><button type="button" class="btn ghost share">📸 รูปสรุปผลงาน</button></div>${body}`;
+    box.querySelector('.share').onclick = () => shareImage(d);
   }
 
   /** สรุปทั้งปี: เดือนที่ได้ S ขึ้นไป · Rising Star · Guild Meeting */
+  /** 📸 รูปสรุปผลงานเดือนนี้ (1080×1080) ไว้โพสต์อวดในกลุ่ม — วาดบน canvas ในเครื่อง ไม่ส่งข้อมูลไปไหน */
+  function shareImage(d) {
+    const W = 1080, cv = document.createElement('canvas'); cv.width = W; cv.height = W;
+    const c = cv.getContext('2d'), ac = store.get('rgs_accent') || '#c8102e', g = state.guild || {};
+    const grd = c.createLinearGradient(0, 0, W, W); grd.addColorStop(0, ac); grd.addColorStop(1, '#16161a');
+    c.fillStyle = grd; c.fillRect(0, 0, W, W);
+    c.fillStyle = 'rgba(255,255,255,.08)'; c.beginPath(); c.arc(W - 120, 160, 300, 0, Math.PI * 2); c.fill();
+    const font = (w, s) => `${w} ${s}px "Noto Sans Thai", Inter, sans-serif`;
+    c.fillStyle = '#fff'; c.textAlign = 'left';
+    c.font = font(600, 40); c.fillText('Exclusive Guild Extreme · ' + (g.gameName || ''), 80, 130);
+    c.font = font(700, 92); c.fillText(g.nameTH || '', 80, 250);
+    c.font = font(400, 44); c.globalAlpha = .85; c.fillText('ผลงานเดือน ' + MONTHS[d.month - 1] + ' ' + (d.year + 543), 80, 330); c.globalAlpha = 1;
+    c.font = font(700, 260); c.fillText(fmtNum(d.monthScore), 72, 620);
+    c.font = font(600, 48); c.fillText('คะแนน', 86, 690);
+    if (d.rank) {
+      c.fillStyle = d.rank === 'SS' ? '#ffd166' : '#fff'; c.beginPath(); c.roundRect(80, 740, 300, 110, 55); c.fill();
+      c.fillStyle = d.rank === 'SS' ? '#7a3b00' : ac; c.font = font(800, 64); c.textAlign = 'center'; c.fillText('Rank ' + d.rank, 230, 818); c.textAlign = 'left';
+    }
+    c.fillStyle = '#fff'; c.font = font(400, 40); c.globalAlpha = .9;
+    const s = d.season || {};
+    c.fillText('ปีนี้ ' + fmtNum(d.yearScore) + ' คะแนน · ได้ S ขึ้นไป ' + (s.monthsS || 0) + ' เดือน', 80, 940);
+    c.globalAlpha = .6; c.font = font(400, 30); c.fillText('Report Guild System', 80, 1010); c.globalAlpha = 1;
+    cv.toBlob((b) => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'ผลงาน_' + (g.nameEN || 'guild') + '_' + MONTHS[d.month - 1] + '_' + (d.year + 543) + '.png';
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast('📸 บันทึกรูปสรุปผลงานแล้ว — โพสต์ในกลุ่มได้เลย');
+    }, 'image/png');
+  }
+
   function renderSeason(d) {
     const s = d.season, box = $('d-season');
     if (!s) { box.innerHTML = ''; return; }
@@ -1282,18 +1314,42 @@
     } catch (err) { if (!silent) toast(err.message, true); }
     finally { if (!silent) setStale(false); }
   }
+  /** ชี้แจง Report ที่ถูกปฏิเสธ (+ ลิงก์ใหม่) → กลับเป็นรอตรวจ */
+  function openAppeal(id, kind) {
+    const o = document.createElement('div');
+    o.className = 'overlay';
+    o.innerHTML = `<div class="card help" role="dialog" aria-modal="true"><div class="help-head"><h2>💬 ชี้แจงทีมงาน</h2><button type="button" class="icon x" aria-label="ปิด">✕</button></div>
+      <p class="muted">อธิบายเพิ่มเติม หรือแนบลิงก์หลักฐานใหม่ — ส่งแล้ว Report นี้จะกลับเป็น "รอตรวจ" ให้ทีมงานดูอีกครั้ง</p>
+      <label>คำชี้แจง *<textarea rows="4" maxlength="500" data-r></textarea></label>
+      ${kind === 'count' ? '' : '<label>ลิงก์หลักฐานใหม่ (ถ้ามี)<input data-l inputmode="url" placeholder="https://..."></label>'}
+      <button type="button" class="btn" data-ok>ส่งคำชี้แจง</button></div>`;
+    const close = () => o.remove();
+    o.querySelector('.x').onclick = close; onBackdrop(o, close);
+    o.querySelector('[data-ok]').onclick = async (ev) => {
+      const btn = ev.target, reply = o.querySelector('[data-r]').value.trim(), l = o.querySelector('[data-l]');
+      if (!reply) return toast('กรุณาพิมพ์คำชี้แจง', true);
+      btn.disabled = true; btn.textContent = '⏳ กำลังส่ง…';
+      try {
+        await api('appeal', { reportId: id, reply, link: l ? l.value.trim() : '' });
+        close(); toast('✅ ส่งคำชี้แจงแล้ว — กลับเป็นรอตรวจ'); loadHist(true);
+      } catch (err) { toast(err.uncertain ? '⚠️ ไม่แน่ใจว่าส่งสำเร็จ — รีเฟรชประวัติดูก่อนส่งซ้ำ' : err.message, true); btn.disabled = false; btn.textContent = 'ส่งคำชี้แจง'; }
+    };
+    document.body.appendChild(o);
+    o.querySelector('[data-r]').focus();
+  }
   function renderHist(rows) {
     {
       $('h-body').innerHTML = rows.length ? rows.map((r) => `<tr>
         <td>${fmtDate(r.createdAt)}</td>
         <td>${esc(r.mission)}${r.poster ? `<div class="note muted">${esc(r.poster)}</div>` : ''}</td>
         <td>${r.kind === 'count' ? `📝 ${esc(r.link)}` : r.kind === 'image' ? '<span class="muted" title="รูปเก็บส่วนตัว ทีมงานเท่านั้นที่เปิดได้">🖼️ รูปหลักฐาน</span>' : `<a href="${esc(safeUrl(r.link))}" target="_blank" rel="noopener">เปิดลิงก์</a>`}</td>
-        <td><span class="pill ${esc(r.status)}">${STATUS_TH[r.status] || esc(r.status)}</span>${r.reason ? `<div class="note muted">${esc(r.reason)}</div>` : ''}${r.status === 'rejected' ? `<div><button type="button" class="link-btn resend" data-m="${esc(r.missionId)}" data-l="${r.kind === 'image' ? '' : esc(r.link)}" data-ym="${esc(r.ym)}">↻ แก้แล้วส่งใหม่</button></div>` : ''}</td>
+        <td><span class="pill ${esc(r.status)}">${STATUS_TH[r.status] || esc(r.status)}</span>${r.reason ? `<div class="note muted">${esc(r.reason)}</div>` : ''}${r.status === 'rejected' ? `<div><button type="button" class="link-btn resend" data-m="${esc(r.missionId)}" data-l="${r.kind === 'image' ? '' : esc(r.link)}" data-ym="${esc(r.ym)}">↻ แก้แล้วส่งใหม่</button> · <button type="button" class="link-btn appeal" data-id="${esc(r.id)}" data-kind="${esc(r.kind)}">💬 ชี้แจง / ส่งหลักฐานใหม่</button></div>` : ''}${r.reply ? `<div class="note">💬 ชี้แจงแล้ว: ${esc(r.reply)}</div>` : ''}</td>
         <td class="r">${r.status === 'approved' ? '<b>+' + fmtNum(r.approvedPoints) + '</b>' : '<span class="muted">—</span>'}</td></tr>`).join('')
         : '<tr><td colspan="5" class="empty">ยังไม่มี Report ในเดือนนี้ — <a href="#" id="go-send">ส่ง Report แรก</a></td></tr>';
       const go = $('go-send');
       if (go) go.onclick = (ev) => { ev.preventDefault(); switchPage('send'); };
       $('h-body').querySelectorAll('.resend').forEach((b) => { b.onclick = () => resendFrom(b.dataset); });
+      $('h-body').querySelectorAll('.appeal').forEach((b) => { b.onclick = () => openAppeal(b.dataset.id, b.dataset.kind); });
     }
   }
 
@@ -1419,6 +1475,16 @@
   function init() {
     fillPeriodSelects();
     applyAccent(store.get('rgs_accent'));
+    // ปุ่ม "ติดตั้งเป็นแอป": Android/Chrome ใช้หน้าต่างติดตั้งของเบราว์เซอร์ · iPhone บอกวิธีกดแชร์ → เพิ่มลงหน้าจอโฮม
+    let installEvt = null;
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; });
+    $('b-install').onclick = async () => {
+      if (window.matchMedia('(display-mode: standalone)').matches) return toast('เปิดเป็นแอปอยู่แล้ว ✓');
+      if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice; installEvt = null; if (r.outcome === 'accepted') toast('📲 ติดตั้งแล้ว — เปิดจากหน้าจอโฮมได้เลย'); return; }
+      toast(/iphone|ipad/i.test(navigator.userAgent) ? 'iPhone: กดปุ่มแชร์ ⬆️ ใน Safari → "เพิ่มไปยังหน้าจอโฮม"' : 'เปิดเมนูของเบราว์เซอร์ (⋮) → "ติดตั้งแอป" หรือ "เพิ่มลงหน้าจอหลัก"');
+    };
+    // ติดตั้งเป็นแอป + เปิดได้แม้เน็ตช้า (เฉพาะเว็บจริง https)
+    if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
     $('b-accent').onclick = openAccent;
     // ⚙️ เมนูตั้งค่า (วิธีใช้ · ธีม · สี · รหัสผ่าน) — กดรายการแล้วปิดเอง · กดที่อื่นปิด
     // ⓘ ที่ EXE Number → กล่องเล็กบอกที่ดู EXE Number
