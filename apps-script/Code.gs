@@ -332,7 +332,9 @@ const ADMIN_ACTIONS = {
   adminAddItemRows: function (r) { return addItemRows_(r.game, Number(r.year), Number(r.month)); },
   adminSetFeedbackSource: function (r) { return setFeedbackSource_(r.id); },
   adminSeasonBoard: function (r) { return seasonBoard_(r.game, Number(r.year)); },
-  adminGuildOverview: function (r) { return guildOverview_(r.game || '', Number(r.year), Number(r.month)); }
+  adminGuildOverview: function (r) { return guildOverview_(r.game || '', Number(r.year), Number(r.month)); },
+  // ดูข้อมูลกิลด์แบบอ่านอย่างเดียว (ทีมตรวจสอบ) — คืน "ภาพที่กิลด์เห็น" ครบ โดยไม่ล็อกอินเป็นกิลด์ ไม่สร้างเซสชัน ไม่แตะข้อมูล
+  adminGuildView: function (r) { return guildView_(r.email, Number(r.year), Number(r.month)); }
 };
 
 // ===================================================================
@@ -853,6 +855,14 @@ function listReports_(year, month, game, status) {
   return readReports_(year).filter(function (x) {
     return (!ym || x.YM === ym) && (!game || x.Game === game) && (!status || x.Status === status);
   }).map(reportOut_).sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; });
+}
+
+/** ภาพรวมที่กิลด์เห็นเอง (อ่านอย่างเดียว · สำหรับทีมตรวจสอบใน CTM) */
+function guildView_(email, year, month) {
+  const g = findGuild_(email);
+  if (!g) throw new Error('ไม่พบกิลด์ ' + email);
+  return { guild: publicGuild_(g), dashboard: dashboard_(g, year, month),
+    history: history_(g, year, month), info: guildCompleteness_(g), members: membersOf_(g) };
 }
 
 function history_(g, year, month) {
