@@ -298,8 +298,11 @@ body{background:var(--background)}
 .m-total-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px}.m-total-row input{max-width:120px;font-size:20px;font-weight:700;text-align:center;margin:0}
 .m-total-head{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.m-total-head .eyebrow{margin:0}
 .m-total-sub{margin:4px 0 10px;font-size:13px}.m-total-lbl{margin:0;font-weight:700;font-size:14px}
-.m-total-row.auto{background:var(--muted);border-radius:12px;padding:8px 12px}.m-total-row.auto input{background:transparent;border-color:transparent;box-shadow:none;max-width:90px;cursor:default}
+.m-total-row.auto .m-total-lbl,.m-total-row.auto input,.m-total-row.auto .m-total-unit{display:none}   /* แบบ A: ไม่มีแถวรวม · เหลือบรรทัดสรุปเล็ก */
+.m-total-row.auto .m-total-cmp{margin-left:0;flex:1;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px}
 .m-total-cmp{margin-left:auto}
+.m-cuteg{display:grid;grid-template-columns:36px 1fr auto;gap:12px;align-items:center;border-radius:14px;padding:12px 14px;margin-top:12px}
+.m-cuteg .i{font-size:24px;text-align:center}.m-cuteg .ck{font-size:13px;line-height:1.8}.m-cuteg.y{background:color-mix(in oklch,#ec4899 8%,transparent);border:1px solid color-mix(in oklch,#ec4899 30%,transparent)}.m-cuteg.n{background:var(--muted);border:1px dashed var(--border)}
 .m-list.z4 .m-row{grid-template-columns:28px 1.6fr 1.2fr 1fr 1.1fr 76px 34px}
 .m-list.tosm .m-row{grid-template-columns:28px 1.5fr 1fr 1.1fr 34px}
 .m-row input.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.02em}

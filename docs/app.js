@@ -328,11 +328,17 @@
     $('m-leader').querySelectorAll('[data-p]').forEach((el) => { el.value = state.profile[el.dataset.p] || ''; });
     $('m-total').value = state.profile.totalMembers == null ? '' : state.profile.totalMembers;
     // TOSM/9Yin: จำนวนคนแยกตามประเภทที่ทีมตั้งใน CTM → รวมเป็นจำนวนสมาชิกทั้งหมดให้เอง
-    const types = d.types || [], tc = state.profile.typeCounts || {};
+    // ประเภท "ต่อกิลด์" (เช่น Cute Guild) ไม่ต้องกรอก → แสดงเป็นการ์ดสถานะแทน (แป้งกำหนด 29 ต.ค. 69)
+    const types = (d.types || []).filter((t) => t.unit !== 'guild'), gTypes = (d.types || []).filter((t) => t.unit === 'guild'), tc = state.profile.typeCounts || {};
     $('m-types').innerHTML = types.length ? types.map((t) => `<label class="m-type"><span>${esc(t.name)}<small class="muted"> · ${t.codesPer} Code/คน</small></span><input type="number" min="0" max="9999" inputmode="numeric" data-t="${esc(t.id)}" value="${tc[t.id] || ''}" placeholder="0"></label>`).join('') : '';
     $('m-total').readOnly = !!types.length;
     $('m-total-row').classList.toggle('auto', !!types.length);   // มีประเภท = ระบบรวมให้ (ไม่ใช่ช่องให้พิมพ์)
-    $('m-total-sub').textContent = types.length ? 'กรอกจำนวนคนในเกมแยกตามประเภท · ระบบรวมยอดทั้งหมดให้อัตโนมัติ' : 'กรอกจำนวนคนทั้งหมดในกิลด์ (ตามในเกม)';
+    $('m-total-sub').textContent = types.length ? 'กรอกจำนวนคนในเกมของแต่ละประเภท' : 'กรอกจำนวนคนทั้งหมดในกิลด์ (ตามในเกม)';
+    const cg = d.cuteGuild, codesG = gTypes.reduce((s, t) => s + (Number(t.codesPer) || 0), 0);
+    $('m-cuteg').innerHTML = gTypes.length && cg ? `<div class="m-cuteg ${cg.achieved ? 'y' : 'n'}"><div class="i">💖</div><div><b>Cute Guild เดือนนี้ · ${cg.achieved ? 'ได้ ' + codesG + ' Code' : 'ยังไม่ได้'}</b>` +
+      (cg.source === 'rule' ? `<div class="ck">${cg.report ? '✅' : '☐'} ส่ง Report ประจำเดือน (อนุมัติแล้ว) &nbsp;·&nbsp; ${cg.rank === 'SS' ? '✅' : '☐'} Rank SS${cg.rank && cg.rank !== 'SS' ? ' (ตอนนี้ Rank ' + esc(cg.rank) + ')' : ''}</div><small class="muted">ได้กิลด์ละ ${codesG} Code · เข้าเงื่อนไขอย่างใดอย่างหนึ่ง</small>`
+        : `<div class="ck">Feedback ที่อนุมัติ ${cg.count || 0}/${cg.need || 3} ครั้ง</div>`) +
+      `</div><span class="pill ${cg.achieved ? 'approved' : 'pending'}">${cg.achieved ? 'ได้แล้ว' : 'ยังไม่ได้'}</span></div>` : '';
     setGuildInfo(d.info);
   }
 
@@ -384,7 +390,8 @@
       (z4 ? `<div class="${cute < 5 ? 'warn' : 'ok'}"><b>${cute}/5</b><span>💖 Cute Gang เดือนนี้</span></div>` : `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`);
     {
       const t = Number($('m-total').value);
-      $('m-total-cmp').innerHTML = !t ? '<span class="pill pending">' + ($('m-total').readOnly ? 'ยังไม่ได้กรอกจำนวนแต่ละประเภท' : 'ยังไม่ได้กรอกจำนวนสมาชิก') + '</span>'
+      $('m-total-cmp').innerHTML = !t ? '<span></span><span class="pill pending">ยังไม่ได้กรอกจำนวนสมาชิก</span>'
+        : $('m-total').readOnly ? `<span class="muted">รวม ${t} คน</span><span class="pill approved">✓ กรอกครบแล้ว</span>`
         : !z4 ? `<span class="pill approved">✓ ${t} คน</span>`
         : t === filled.length ? `<span class="pill approved">✓ ตรงกับรายชื่อที่กรอก (${filled.length} คน)</span>`
         : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนที่กรอก ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;

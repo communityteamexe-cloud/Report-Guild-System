@@ -939,6 +939,7 @@ function membersOf_(g, listIn, profileIn) {
   const last = list.reduce(function (m, x) { return x.updatedAt > m ? x.updatedAt : m; }, profile.updatedAt || '');
   return { game: g.Game, members: list, profile: profile, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
     servers: isZ4_(g.Game) ? [] : serversOf_(g.Game), cuteMax: isZ4_(g.Game) ? CUTE_GANG_MAX : 0, types: isZ4_(g.Game) ? [] : memberTypesOf_(g.Game),
+    cuteGuild: !isZ4_(g.Game) && memberTypesOf_(g.Game).some(function (t) { return t.unit === 'guild'; }) ? (function () { try { return cuteGuild_(g, null); } catch (e) { return null; } })() : null,
     count: list.length, eligible: list.filter(function (x) { return x.eligible; }).length, updatedAt: last,
     info: completenessOf_(g.Game, profile, list), staffEditAt: staffEditAt_(g.Email) };
 }
@@ -1323,6 +1324,13 @@ function setFeedbackSource_(id) {
 }
 
 function cuteGuild_(g, ym) {
+  // TOSM (แป้งกำหนด 29 ต.ค. 69): Cute Guild = Rank SS ของเดือน หรือ มี Report ที่อนุมัติแล้วในเดือนนั้น · 9Yin/Zone4 ใช้กติกาเดิมด้านล่าง
+  if (g.Game === 'tosm') {
+    const ymT = ym || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM'), yT = Number(String(ymT).slice(0, 4));
+    const mine = readReports_(yT).filter(function (x) { return x.Email === g.Email && x.Game === g.Game && x.YM === ymT && x.Status === STATUS.APPROVED; });
+    const rank = rankOf_(mine.reduce(function (s, x) { return s + (Number(x.ApprovedPoints) || 0); }, 0), rankRule_(g.Game, yT));
+    return { count: mine.length, need: 1, achieved: rank === 'SS' || mine.length > 0, source: 'rule', rank: rank || '', report: mine.length > 0 };
+  }
   if (isZ4_(g.Game)) {
     const counts = feedbackCounts_(ym || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM'));
     if (!counts) return null;
@@ -1582,7 +1590,7 @@ function memberTypesOf_(game) {
   seedMemberTypes_();
   const list = readRows_('MemberTypes').filter(function (t) { return t.Game === game; })
     .sort(function (a, b) { return Number(a.Order) - Number(b.Order); })
-    .map(function (t) { return { id: String(t.TypeID), name: String(t.Name), codesPer: Number(t.CodesPer) || 0 }; });
+    .map(function (t) { return { id: String(t.TypeID), name: String(t.Name), codesPer: Number(t.CodesPer) || 0, unit: String(t.Unit || '') === 'guild' ? 'guild' : 'person' }; });   // unit: person = ต่อคน · guild = ต่อกิลด์ (เมื่อได้ Cute Guild)
   // เกมใหม่ที่ยังไม่ได้ตั้งประเภท → ใช้ค่าเริ่มต้น หัวหน้า 1 · สมาชิก 1 (ทีมแก้ได้ในหน้า Benefit)
   return list.length || isZ4_(game) ? list : [{ id: 'leader', name: 'หัวหน้ากิลด์', codesPer: 1 }, { id: 'member', name: 'สมาชิก', codesPer: 1 }];
 }
@@ -1590,8 +1598,8 @@ function typeCountsOf_(email) {
   const p = readRows_('GuildProfiles').filter(function (x) { return x.Email === email; })[0];
   try { return p && p.TypeCounts ? JSON.parse(p.TypeCounts) : {}; } catch (e) { return {}; }
 }
-function codesNeeded_(game, counts) {
-  return memberTypesOf_(game).reduce(function (s, t) { return s + (Number(counts[t.id]) || 0) * t.codesPer; }, 0);
+function codesNeeded_(game, counts, cuteOk) {   // ประเภทต่อกิลด์ = codesPer เมื่อได้ Cute Guild
+  return memberTypesOf_(game).reduce(function (s, t) { return s + (t.unit === 'guild' ? (cuteOk ? t.codesPer : 0) : (Number(counts[t.id]) || 0) * t.codesPer); }, 0);
 }
 
 /** การ์ด Rank + รางวัลบนเว็บกิลด์ */
@@ -1604,8 +1612,10 @@ function rewardPreview_(g, ym, monthScore, rule) {
     out.rankS = pick('rankS'); out.rankSS = pick('rankSS'); out.leader = pick('leader'); out.cute = pick('cute');
   } else {
     const counts = typeCountsOf_(g.Email);
-    out.types = memberTypesOf_(g.Game).map(function (t) { return { name: t.name, count: Number(counts[t.id]) || 0, codesPer: t.codesPer }; });
-    out.codes = codesNeeded_(g.Game, counts);
+    const cg = memberTypesOf_(g.Game).some(function (t) { return t.unit === 'guild'; }) ? (cuteGuild_(g, ym) || {}) : {};
+    out.types = memberTypesOf_(g.Game).map(function (t) { return { name: t.name, count: t.unit === 'guild' ? (cg.achieved ? 1 : 0) : Number(counts[t.id]) || 0, codesPer: t.codesPer, unit: t.unit }; });
+    out.codes = codesNeeded_(g.Game, counts, !!cg.achieved);
+    out.cuteGuild = cg.achieved != null ? cg : null;
   }
   return out;
 }
@@ -1674,11 +1684,12 @@ function saveMemberTypes_(game, types) {
   if (!GAMES[game] || isZ4_(game)) throw new Error('ประเภทสมาชิกใช้กับ TOSM / 9Yin เท่านั้น');
   const clean = (types || []).map(function (t, i) {
     return { Game: game, TypeID: String(t.id || ('t' + Utilities.getUuid().slice(0, 6))).slice(0, 30), Name: String(t.name || '').trim().slice(0, 60),
-      CodesPer: Math.max(0, Math.floor(Number(t.codesPer) || 0)), Order: i + 1 };
+      CodesPer: Math.max(0, Math.floor(Number(t.codesPer) || 0)), Unit: t.unit === 'guild' ? 'guild' : 'person', Order: i + 1 };
   }).filter(function (t) { return t.Name; });
   if (!clean.length) throw new Error('ต้องมีอย่างน้อย 1 ประเภท');
   return withLock_(function () {
     seedMemberTypes_();
+    const sh0 = getSheet_('MemberTypes'); if (sh0.getRange(1, 1, 1, sh0.getLastColumn()).getValues()[0].indexOf('Unit') < 0) sh0.getRange(1, sh0.getLastColumn() + 1).setValue('Unit');   // คอลัมน์หน่วย (ต่อคน/ต่อกิลด์)
     const sh = getSheet_('MemberTypes'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
     const keep = data.slice(1).filter(function (r) { return r.join('') !== '' && r[col.Game] !== game; });
     const rows = keep.concat(clean.map(function (t) { return data[0].map(function (h) { return t[h] === undefined ? '' : t[h]; }); }));
@@ -1737,8 +1748,10 @@ function rewardSummaryRaw_(game, year, month) {
       o.cuteGuild = cg.achieved || false; o.feedback = cg.count || 0;
     } else {
       const counts = typeCountsOf_(g.email);
-      o.types = memberTypesOf_(game).map(function (t) { return { name: t.name, count: Number(counts[t.id]) || 0 }; });
-      o.codesNeeded = codesNeeded_(game, counts);
+      const tl = memberTypesOf_(game), cgT = tl.some(function (t) { return t.unit === 'guild'; }) ? (cuteGuild_({ Email: g.email, Game: game, NameTH: g.nameTH, NameEN: g.nameEN }, ym) || {}) : {};
+      o.cuteGuild = !!cgT.achieved;
+      o.types = tl.map(function (t) { return { name: t.name, count: t.unit === 'guild' ? (cgT.achieved ? 1 : 0) : Number(counts[t.id]) || 0, unit: t.unit }; });
+      o.codesNeeded = (rank ? codesNeeded_(game, counts, false) : 0) + tl.filter(function (t) { return t.unit === 'guild'; }).reduce(function (s, t) { return s + (cgT.achieved ? t.codesPer : 0); }, 0);
       o.codesGiven = pool.filter(function (c) { return c.Email === g.email; }).length;
     }
     return o;
@@ -1750,7 +1763,7 @@ function distributeCodes_(game, year, month) {
   if (isZ4_(game)) throw new Error('Zone4 ใช้การแอดไอเทม ไม่ใช่ Code');
   const ym = ymOf_(year, month);
   return withLock_(function () {
-    const sum = rewardSummaryRaw_(game, year, month).filter(function (g) { return g.rank; });   // ใช้ของสดเสมอ (กันแจกซ้ำ)
+    const sum = rewardSummaryRaw_(game, year, month).filter(function (g) { return g.rank || g.cuteGuild; });   // ใช้ของสดเสมอ (กันแจกซ้ำ) · Cute Guild ได้แม้ยังไม่ถึง Rank S
     const sh = getSheet_('CodePool'), data = sh.getDataRange().getValues(), col = indexMap_(data[0]);
     // คลังแยกประเภท (แป้งสั่ง 21 ต.ค. 69): แต่ละประเภทดึงคลังของตัวเองก่อน → ไม่พอใช้คลังรวม (Pool ว่าง)
     // กิลด์ได้ต่อประเภท = จำนวนคนประเภทนั้นที่กิลด์กรอก × Code ต่อคน − ที่แจกไปแล้วเดือนนี้ · คลังไหนไม่พอ = ไม่แจกเลย (บอกว่าขาดเท่าไร)
@@ -1766,7 +1779,8 @@ function distributeCodes_(game, year, month) {
       const counts = typeCountsOf_(g.email);
       let gen = given[g.email + '|'] || 0;   // Code จากคลังรวมที่แจกไปแล้ว นับหักให้ประเภทตามลำดับ
       types.forEach(function (t) {
-        let n = Math.max(0, (Number(counts[t.id]) || 0) * t.codesPer - (given[g.email + '|' + t.id] || 0));
+        const want = t.unit === 'guild' ? (g.cuteGuild ? t.codesPer : 0) : (g.rank ? (Number(counts[t.id]) || 0) * t.codesPer : 0);   // ต่อกิลด์ = Cute Guild · ต่อคน = Rank S+
+        let n = Math.max(0, want - (given[g.email + '|' + t.id] || 0));
         const u = Math.min(n, gen); n -= u; gen -= u;
         if (!n) return;
         const own = Math.min(n, (free[t.id] || []).length - (used[t.id] || 0)); used[t.id] = (used[t.id] || 0) + own;
