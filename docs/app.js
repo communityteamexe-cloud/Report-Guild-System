@@ -285,7 +285,29 @@
   // เกมแบบ "แอดไอเทมเข้า EXE Number" (Zone4 และเกมใหม่ที่ทีมตั้งแบบเดียวกันใน CTM)
   const isZ4 = () => !!state.guild && (state.guild.method ? state.guild.method === 'add' : state.guild.game === 'z4');
 
+  /** เข้าโหมดทีมงาน: แสดงเฉพาะแท็บข้อมูลกิลด์ + แถบฟ้า · ซ่อนเมนู/แท็บอื่น */
+  function enterStaffMode() {
+    document.body.classList.add('staff-mode');
+    show('v-app');
+    const bar = document.createElement('div');
+    bar.className = 'staff-bar'; bar.id = 'staff-bar';
+    bar.innerHTML = '👥 ทีมงานกำลังแก้ไขข้อมูลแทนกิลด์ · บันทึกแล้วจะแสดงทั้งในระบบทีม (CTM) และเว็บกิลด์ทันที · การแก้ไขถูกบันทึกในประวัติ';
+    $('v-app').prepend(bar);
+    switchPage('mem', true);
+    loadMembers();
+  }
+
   async function loadMembers() {
+    if (state.staff) {
+      $('m-body').innerHTML = '<div class="empty">กำลังโหลดข้อมูลกิลด์…</div>';
+      try {
+        const d = await api('staffMembers', { etoken: state.staff.token });
+        state.guild = d.guild; showGuild(d.guild);
+        $('staff-bar').innerHTML = '👥 ทีมงานกำลังแก้ไขข้อมูลแทนกิลด์ <b>' + esc(d.guild.nameTH) + '</b> · โดย: ' + esc(d.staffBy || 'ทีมงาน') + ' · บันทึกแล้วแสดงทั้ง CTM และเว็บกิลด์ทันที · การแก้ไขถูกบันทึกในประวัติ';
+        applyMemberData(d); setMemDirty(false); renderMembers();
+      } catch (err) { $('m-body').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+      return;
+    }
     const c = dataCache.get('members');
     if (c && c.members) { applyMemberData(c); setMemDirty(false); renderMembers(); setStale(true); }
     else $('m-body').innerHTML = '<div class="empty">กำลังโหลดข้อมูลกิลด์…</div>';
@@ -365,7 +387,7 @@
         : t === filled.length ? `<span class="pill approved">✓ ตรงกับรายชื่อที่กรอก (${filled.length} คน)</span>`
         : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนที่กรอก ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
     }
-    $('m-notice').innerHTML = snapshotNoticeHtml(false);
+    $('m-notice').innerHTML = snapshotNoticeHtml(false) + (!state.staff && meta.staffEditAt ? `<div class="note muted staff-note">👥 ทีมงานแก้ไขข้อมูลกิลด์ล่าสุดเมื่อ ${esc(fmtDate(meta.staffEditAt))} น. — ตรวจสอบได้ หากไม่ถูกต้องแก้ไขได้ตามปกติ</div>` : '');
     // เลือกหลายแถว → ลบทีเดียว
     const nSel = list.filter((m) => m.sel).length, nLow = filled.filter((m) => Number(m.level) < min).length;
     const SEL_ALL = `<label class="n sel" title="เลือกทั้งหมด"><input type="checkbox" data-selall${list.length && nSel === list.length ? ' checked' : ''}></label>`;
@@ -531,7 +553,8 @@
     const slow = setTimeout(() => { btn.textContent = '⏳ กำลังเขียนลงระบบ… อีกสักครู่'; }, 3000);
     const started = Date.now();
     const done = (d) => {
-      dataCache.set('members', d);
+      if (!state.staff) dataCache.set('members', d);
+      else try { window.parent.postMessage({ type: 'rgs-staff-saved', email: (state.guild && state.guild.email) || '' }, '*'); } catch (e) { /* ไม่ได้ฝังใน CTM */ }
       applyMemberData(d);
       setMemDirty(false); renderMembers();
       btn.classList.add('ok'); btn.textContent = '✓ บันทึกแล้ว';
@@ -540,13 +563,13 @@
     };
     try {
       // TOSM/9Yin ไม่ส่งรายชื่อ (หลังบ้านไม่แตะชีตรายชื่อ)
-      done(await api('saveMembers', { members: isZ4() ? state.members.map((m) => Object.assign({}, m, { sel: undefined })) : null, profile: state.profile, totalMembers: $('m-total').value }));
+      done(await api(state.staff ? 'staffSaveMembers' : 'saveMembers', { etoken: state.staff ? state.staff.token : undefined, members: isZ4() ? state.members.map((m) => Object.assign({}, m, { sel: undefined })) : null, profile: state.profile, totalMembers: $('m-total').value }));
     } catch (err) {
       if (err.uncertain) {
         // เน็ตสะดุด/หมดเวลา → เช็คว่าบันทึกเข้าแล้วหรือยัง ก่อนบอกผล
         btn.textContent = '⏳ กำลังตรวจว่าบันทึกเข้าแล้วหรือยัง…';
         try {
-          const d = await api('members');
+          const d = await api(state.staff ? 'staffMembers' : 'members', state.staff ? { etoken: state.staff.token } : undefined);
           const at = Date.parse(d.updatedAt || '') || 0;
           if (at >= started - 60000) { done(Object.assign(d, { changes: 0 })); return; }
         } catch (e) { /* ตรวจไม่ได้ → แจ้งให้กดใหม่ */ }
@@ -1425,6 +1448,8 @@
       return { complete: steps.every((s) => s.ok), missing: steps.filter((s) => !s.ok).map((s) => s.label), steps, done: steps.filter((s) => s.ok).length, cute };
     },
     members() { const l = this.memberList; return { game: this.guild.game, members: l, profile: this.profile, levelMin: 40, max: 100, roles: ['leader', 'deputy', 'member'], servers: ['Laima', 'Vakarine', 'Giltine', 'Austeja', 'Jurate'], cuteMax: 5, count: l.length, eligible: l.filter((m) => m.level >= 40).length, updatedAt: l.reduce((a, m) => m.updatedAt > a ? m.updatedAt : a, ''), info: this.info() }; },
+    staffMembers() { return Object.assign(this.members(), { guild: Object.assign({}, this.guild), staffBy: 'แป้ง (Demo)' }); },
+    staffSaveMembers(b) { return Object.assign(this.saveMembers(b), { guild: Object.assign({}, this.guild), staffBy: 'แป้ง (Demo)' }); },
     saveMembers(b) {
       this.profile = Object.assign({}, b.profile, { totalMembers: b.totalMembers });
       const seen = {};
@@ -1627,6 +1652,15 @@
     document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => switchPage(t.dataset.p)));
     ['d-year', 'd-month'].forEach((id) => $(id).addEventListener('change', () => { lockFutureMonths('d'); loadDash(); }));
     ['h-year', 'h-month'].forEach((id) => $(id).addEventListener('change', () => { lockFutureMonths('h'); loadHist(); }));
+
+    // โหมดทีมงานกรอกแทนกิลด์ (เปิดจาก CTM: #staff=สิทธิ์ชั่วคราว) — เฉพาะหน้าข้อมูลกิลด์ ไม่ใช่การเข้าบัญชีกิลด์
+    const sm = /^#staff=([0-9a-f]{40,80})$/i.exec(location.hash || '');
+    if (sm) {
+      state.staff = { token: sm[1] };
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+      enterStaffMode();
+      return;
+    }
 
     const savedEmail = store.get('rgs_email');
     if (savedEmail) $('l-email').value = savedEmail;

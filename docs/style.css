@@ -404,3 +404,9 @@ body.stale::after{content:"⟳ กำลังอัปเดต…";position:fi
 #m-total[readonly]{background:var(--muted)}
 .reward .rw-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .reward .rw-head .btn{width:auto;margin:0;padding:6px 14px;font-size:13px}
+
+/* ===== โหมดทีมงานกรอกแทนกิลด์ (ฝังใน CTM) ===== */
+.staff-bar{position:sticky;top:0;z-index:20;background:#e7f0fa;color:#1d5fa8;padding:10px 16px;font-size:13px;font-weight:600;border-bottom:1px solid #c9dcf2}
+:root.dark .staff-bar{background:#16273d;color:#8ec1f5;border-color:#24405f}
+.staff-mode .bar .tabs,.staff-mode .bar .menu{display:none}
+.staff-note{margin-top:6px}

@@ -272,6 +272,8 @@ function doPost(e) {
       return json_({ ok: true, data: ADMIN_ACTIONS[a](req) });
     }
     if (a === 'login') return json_({ ok: true, data: login_(req.email, req.password, !!req.remember) });
+    // ทีมงานกรอกรายชื่อแทนกิลด์ (สิทธิ์ชั่วคราวจาก CTM · เฉพาะข้อมูลกิลด์ · ไม่ใช่เซสชันของกิลด์)
+    if (STAFF_ACTIONS[a]) return json_({ ok: true, data: STAFF_ACTIONS[a](req) });
     if (!GUILD_ACTIONS[a]) throw new Error('ไม่รู้จักคำสั่ง ' + a);
     const guild = requireSession_(req.token);
     if (truthy_(guild.MustChange) && ['me', 'changePassword', 'logout'].indexOf(a) < 0) throw new Error('MUST_CHANGE_PASSWORD');
@@ -334,7 +336,9 @@ const ADMIN_ACTIONS = {
   adminSeasonBoard: function (r) { return seasonBoard_(r.game, Number(r.year)); },
   adminGuildOverview: function (r) { return guildOverview_(r.game || '', Number(r.year), Number(r.month)); },
   // ดูข้อมูลกิลด์แบบอ่านอย่างเดียว (ทีมตรวจสอบ) — คืน "ภาพที่กิลด์เห็น" ครบ โดยไม่ล็อกอินเป็นกิลด์ ไม่สร้างเซสชัน ไม่แตะข้อมูล
-  adminGuildView: function (r) { return guildView_(r.email, Number(r.year), Number(r.month)); }
+  adminGuildView: function (r) { return guildView_(r.email, Number(r.year), Number(r.month)); },
+  // ออกสิทธิ์ชั่วคราวให้ทีมกรอกรายชื่อแทนกิลด์ (20 นาที · กิลด์เดียว · แก้ได้เฉพาะข้อมูลกิลด์)
+  adminMemberEditToken: function (r) { return staffEditIssue_(r.email, r.by); }
 };
 
 // ===================================================================
@@ -936,7 +940,7 @@ function membersOf_(g, listIn, profileIn) {
   return { game: g.Game, members: list, profile: profile, levelMin: LEVEL_MIN[g.Game] || 0, max: MAX_MEMBERS, roles: MEMBER_ROLES,
     servers: isZ4_(g.Game) ? [] : serversOf_(g.Game), cuteMax: isZ4_(g.Game) ? CUTE_GANG_MAX : 0, types: isZ4_(g.Game) ? [] : memberTypesOf_(g.Game),
     count: list.length, eligible: list.filter(function (x) { return x.eligible; }).length, updatedAt: last,
-    info: completenessOf_(g.Game, profile, list) };
+    info: completenessOf_(g.Game, profile, list), staffEditAt: staffEditAt_(g.Email) };
 }
 
 /**
@@ -944,7 +948,8 @@ function membersOf_(g, listIn, profileIn) {
  * Zone4: EXE Number บังคับ · ซ้ำไม่ได้ · Cute Gang ≤ 5 เฉพาะคนผ่านเกณฑ์ Level · TOSM/9Yin: Server ต้องอยู่ในรายการ · ตัวละคร+Server ซ้ำไม่ได้
  */
 function p0_(o) { return o || {}; }
-function saveMembers_(g, input, profileIn, totalIn) {
+function saveMembers_(g, input, profileIn, totalIn, staffBy) {
+  const tag = staffBy ? '[แก้โดยทีมงาน: ' + String(staffBy).slice(0, 60) + '] ' : '';   // ทีมกรอกแทนกิลด์จาก CTM → ติดป้ายในประวัติ
   const t0 = Date.now();
   // TOSM/9Yin ไม่ต้องกรอกรายชื่อ — ส่งมาแค่ข้อมูลหัวหน้า + จำนวน (input = null → ไม่แตะชีตรายชื่อ)
   const skipList = !isZ4_(g.Game) && !Array.isArray(input);
@@ -1011,7 +1016,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
     const profile = { leaderName: prow.LeaderName, leaderNick: prow.LeaderNick, leaderPhone: prow.LeaderPhone.slice(1), leaderFb: prow.LeaderFB,
       totalMembers: total === '' ? null : total, updatedAt: profileUpdatedAt, typeCounts: typeCounts };
     if (skipList) {
-      if (logs.length) appendRows_('MemberLog', logs.map(function (l) { return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: '', Detail: l[3] }; }));
+      if (logs.length) appendRows_('MemberLog', logs.map(function (l) { return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: '', Detail: tag + l[3] }; }));
       return Object.assign(membersOf_(g, [], profile), { changes: logs.length, ms: Date.now() - t0 });
     }
 
@@ -1059,7 +1064,7 @@ function saveMembers_(g, input, profileIn, totalIn) {
       if (extra > 0) sh.getRange(first + 2 + tail.length, 1, extra, head.length).clearContent();
     }
     if (logs.length) appendRows_('MemberLog', logs.map(function (l) {
-      return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: l[2] ? "'" + l[2] : '', Detail: l[3] };
+      return { At: now, Email: g.Email, Action: l[0], CharName: l[1], InGameID: l[2] ? "'" + l[2] : '', Detail: tag + l[3] };
     }));
     // ตอบกลับจากข้อมูลที่เพิ่งบันทึก (ไม่อ่านชีตซ้ำ)
     const list = rows.map(function (r) { const o = {}; head.forEach(function (h, i) { o[h] = r[i]; }); return memberOut_(o, g.Game); });
@@ -1900,3 +1905,36 @@ function seasonBoard_(game, year) {
   });
   return { year: year, rule: rule, rising: rising, meeting: meeting };
 }
+
+// ===================================================================
+// ทีมงานกรอกรายชื่อแทนกิลด์ — CTM ขอสิทธิ์ชั่วคราว (adminMemberEditToken) แล้วฝังหน้าข้อมูลกิลด์ของเว็บกิลด์
+// สิทธิ์: 20 นาที · กิลด์เดียว · ทำได้แค่ดู/บันทึกข้อมูลกิลด์ (รายชื่อ · หัวหน้า · จำนวน) — ส่ง Report/เปลี่ยนรหัส/ดูคะแนนไม่ได้
+// ทุกการบันทึกติดป้าย "แก้โดยทีมงาน" ใน MemberLog · กิลด์เห็นบรรทัด "ทีมงานแก้ไขล่าสุดเมื่อ..." ในหน้าข้อมูลกิลด์
+// ===================================================================
+const STAFF_EDIT_SEC = 1200;
+function staffEditIssue_(email, by) {
+  const g = findGuild_(email);
+  if (!g) throw new Error('ไม่พบกิลด์ ' + email);
+  const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  CacheService.getScriptCache().put('medit_' + token, JSON.stringify({ e: g.Email, by: String(by || 'ทีมงาน').slice(0, 60) }), STAFF_EDIT_SEC);
+  return { token: token, guild: publicGuild_(g), expiresIn: STAFF_EDIT_SEC };
+}
+function staffCtx_(token) {
+  const hit = token && CacheService.getScriptCache().get('medit_' + String(token));
+  if (!hit) throw new Error('สิทธิ์แก้ไขหมดอายุแล้ว — กลับไปกด "แก้ไขรายชื่อ" ใน CTM ใหม่');
+  const c = JSON.parse(hit), g = findGuild_(c.e);
+  if (!g) throw new Error('ไม่พบกิลด์');
+  return { g: g, by: c.by };
+}
+function staffEditAt_(email) {
+  try { const v = PropertiesService.getScriptProperties().getProperty('staffedit_' + String(email).toLowerCase()); return v ? JSON.parse(v).at : ''; } catch (e) { return ''; }
+}
+const STAFF_ACTIONS = {
+  staffMembers: function (r) { const c = staffCtx_(r.etoken); return Object.assign(membersOf_(c.g), { guild: publicGuild_(c.g), staffBy: c.by }); },
+  staffSaveMembers: function (r) {
+    const c = staffCtx_(r.etoken);
+    const out = saveMembers_(c.g, r.members, r.profile, r.totalMembers, c.by);
+    if (out.changes) PropertiesService.getScriptProperties().setProperty('staffedit_' + String(c.g.Email).toLowerCase(), JSON.stringify({ at: new Date().toISOString(), by: c.by }));
+    return Object.assign(out, { guild: publicGuild_(c.g), staffBy: c.by, staffEditAt: staffEditAt_(c.g.Email) });
+  }
+};
