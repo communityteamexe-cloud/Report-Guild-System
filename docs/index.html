@@ -231,10 +231,10 @@
       </div>
       <!-- จำนวนสมาชิกทั้งหมด (ทุกเกม) -->
       <div class="card m-sec m-total" id="m-total-card">
-        <div class="eyebrow">2 · จำนวนสมาชิกกิลด์ทั้งหมด <span class="pill rejected">สำคัญ</span></div>
+        <div class="m-total-head"><div class="eyebrow">2 · จำนวนสมาชิกกิลด์ทั้งหมด</div><span class="pill rejected">⚠️ สำคัญ · ใช้คำนวณ Code ที่ได้รับ</span></div>
+        <p class="muted m-total-sub" id="m-total-sub">กรอกจำนวนคนทั้งหมดในกิลด์ (ตามในเกม)</p>
         <div class="m-types" id="m-types"></div>
-        <div class="m-total-row"><input id="m-total" type="number" min="0" max="9999" inputmode="numeric" placeholder="0"><span class="muted">คน (ตามในเกม) · ใช้คำนวณจำนวนไอเทม Code ที่ทีมงานส่งให้</span></div>
-        <p class="note" id="m-total-cmp"></p>
+        <div class="m-total-row" id="m-total-row"><label for="m-total" class="m-total-lbl">รวมทั้งหมด</label><input id="m-total" type="number" min="0" max="9999" inputmode="numeric" placeholder="0"><span class="muted">คน</span><span class="m-total-cmp" id="m-total-cmp"></span></div>
       </div>
       <!-- รายชื่อสมาชิก -->
       <div class="card m-sec" id="m-list-card">

@@ -331,6 +331,8 @@
     const types = d.types || [], tc = state.profile.typeCounts || {};
     $('m-types').innerHTML = types.length ? types.map((t) => `<label class="m-type"><span>${esc(t.name)}<small class="muted"> · ${t.codesPer} Code/คน</small></span><input type="number" min="0" max="9999" inputmode="numeric" data-t="${esc(t.id)}" value="${tc[t.id] || ''}" placeholder="0"></label>`).join('') : '';
     $('m-total').readOnly = !!types.length;
+    $('m-total-row').classList.toggle('auto', !!types.length);   // มีประเภท = ระบบรวมให้ (ไม่ใช่ช่องให้พิมพ์)
+    $('m-total-sub').textContent = types.length ? 'กรอกจำนวนคนในเกมแยกตามประเภท · ระบบรวมยอดทั้งหมดให้อัตโนมัติ' : 'กรอกจำนวนคนทั้งหมดในกิลด์ (ตามในเกม)';
     setGuildInfo(d.info);
   }
 
@@ -382,7 +384,7 @@
       (z4 ? `<div class="${cute < 5 ? 'warn' : 'ok'}"><b>${cute}/5</b><span>💖 Cute Gang เดือนนี้</span></div>` : `<div><b>${meta.updatedAt ? fmtDate(meta.updatedAt).split(' ').slice(0, 3).join(' ') : '—'}</b><span>อัปเดตล่าสุด</span></div>`);
     {
       const t = Number($('m-total').value);
-      $('m-total-cmp').innerHTML = !t ? '<span class="pill pending">กรอกจำนวนสมาชิกทั้งหมดในเกม</span>'
+      $('m-total-cmp').innerHTML = !t ? '<span class="pill pending">' + ($('m-total').readOnly ? 'ยังไม่ได้กรอกจำนวนแต่ละประเภท' : 'ยังไม่ได้กรอกจำนวนสมาชิก') + '</span>'
         : !z4 ? `<span class="pill approved">✓ ${t} คน</span>`
         : t === filled.length ? `<span class="pill approved">✓ ตรงกับรายชื่อที่กรอก (${filled.length} คน)</span>`
         : `<span class="pill pending">รายชื่อด้านล่างมี ${filled.length} คน ต่างจากจำนวนที่กรอก ${Math.abs(t - filled.length)} คน — ตรวจอีกครั้ง</span>`;
